@@ -212,7 +212,7 @@ class RTCConsumer(BaseServerConsumer):
     async def receive_json(self, data):
         msg_type = data.get("type")
         if msg_type == "join-voice":
-            await self.handle_join_voice()
+            await self.handle_join_voice(data)
         elif msg_type == "leave-voice":
             await self.handle_leave_voice()
         elif msg_type == "state-update":
@@ -220,12 +220,14 @@ class RTCConsumer(BaseServerConsumer):
         elif msg_type == "signal":
             await self.handle_signal(data)
 
-    async def handle_join_voice(self):
+    async def handle_join_voice(self, data):
+        channel = (data.get("channel") or "").strip()
         participants = voice_participants[self.server_id]
         if self.user.id in participants:
             return
         participants[self.user.id] = {
             "username": self.user.username,
+            "channel": channel,
             "muted": False,
             "deafened": False,
             "sharing": False,

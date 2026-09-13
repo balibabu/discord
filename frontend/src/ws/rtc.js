@@ -171,7 +171,7 @@ export async function joinVoice(channelName) {
     deafened: false,
     sharing: false,
   })
-  send({ type: 'join-voice' })
+  send({ type: 'join-voice', channel: channelName })
 }
 
 export function leaveVoice() {

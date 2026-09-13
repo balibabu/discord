@@ -1,0 +1,47 @@
+@import "tailwindcss";
+@import "highlight.js/styles/github-dark.css";
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #2b2d31; }
+::-webkit-scrollbar-thumb { background: #1a1b1e; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #111214; }
+
+.discord-markdown p { margin-bottom: 0.25rem; line-height: 1.45; }
+.discord-markdown p:last-child { margin-bottom: 0; }
+.discord-markdown code {
+  background-color: #2b2d31;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+}
+.discord-markdown pre {
+  background-color: #1e1f22;
+  border: 1px solid #232428;
+  border-radius: 6px;
+  padding: 0.6rem;
+  margin: 0.4rem 0;
+  overflow-x: auto;
+}
+.discord-markdown pre code {
+  background: none;
+  padding: 0;
+}
+.discord-markdown blockquote {
+  border-left: 4px solid #4e5058;
+  padding-left: 0.75rem;
+  margin: 0.35rem 0;
+  color: #b5bac1;
+}
+.discord-markdown a {
+  color: #00a8fc;
+  text-decoration: none;
+}
+.discord-markdown a:hover { text-decoration: underline; }
+.discord-markdown ul { list-style-type: disc; padding-left: 1.25rem; margin: 0.25rem 0; }
+.discord-markdown ol { list-style-type: decimal; padding-left: 1.25rem; margin: 0.25rem 0; }
+.discord-markdown table { border-collapse: collapse; margin: 0.4rem 0; }
+.discord-markdown th, .discord-markdown td {
+  border: 1px solid #3f4147;
+  padding: 0.25rem 0.6rem;
+}

@@ -22,6 +22,7 @@ A self-hosted, Discord-like app with the essentials: servers, text channels, mar
 ```bash
 cd backend
 uv sync
+cp ../env.sample ../.env   # optional; defaults work for local dev
 uv run python manage.py migrate
 uv run daphne -b 0.0.0.0 -p 8000 config.asgi:application
 ```

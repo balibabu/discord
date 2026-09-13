@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import { connectChat, disconnectChat, sendChatMessage } from '../ws/chat'
+import { connectChat, disconnectChat, sendChatMessage, editChatMessage, deleteChatMessage } from '../ws/chat'
 import { connectRtc, disconnectRtc, leaveVoice } from '../ws/rtc'
 import { useVoice } from './voice'
 
@@ -50,6 +50,14 @@ export const useApp = create((set, get) => ({
     sendChatMessage(get().activeChannelId, content)
   },
 
+  editMessage: (messageId, content) => {
+    editChatMessage(messageId, content)
+  },
+
+  deleteMessage: (messageId) => {
+    deleteChatMessage(messageId)
+  },
+
   appendMessage: (message) => {
     const channelId = message.channel
     set((s) => {
@@ -57,6 +65,28 @@ export const useApp = create((set, get) => ({
       if (!existing) return s
       if (existing.some((m) => m.id === message.id)) return s
       return { messages: { ...s.messages, [channelId]: [...existing, message] } }
+    })
+  },
+
+  updateMessage: (message) => {
+    const channelId = message.channel
+    set((s) => {
+      const existing = s.messages[channelId]
+      if (!existing) return s
+      return {
+        messages: {
+          ...s.messages,
+          [channelId]: existing.map((m) => (m.id === message.id ? message : m)),
+        },
+      }
+    })
+  },
+
+  removeMessage: (channelId, messageId) => {
+    set((s) => {
+      const existing = s.messages[channelId]
+      if (!existing) return s
+      return { messages: { ...s.messages, [channelId]: existing.filter((m) => m.id !== messageId) } }
     })
   },
 

@@ -2,6 +2,7 @@ import json
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
+from django.utils import timezone
 from rest_framework.authtoken.models import Token
 
 from .models import Channel, Message, Server
@@ -89,8 +90,13 @@ class ChatConsumer(BaseServerConsumer):
         await self.send_json(event["event"])
 
     async def receive_json(self, data):
-        if data.get("type") == "message":
+        msg_type = data.get("type")
+        if msg_type == "message":
             await self.handle_message(data)
+        elif msg_type == "edit-message":
+            await self.handle_edit_message(data)
+        elif msg_type == "delete-message":
+            await self.handle_delete_message(data)
 
     @database_sync_to_async
     def save_message(self, channel_id, content):
@@ -113,6 +119,52 @@ class ChatConsumer(BaseServerConsumer):
         if message is None:
             return
         await self.group_send_event({"kind": "message", "message": message})
+
+    @database_sync_to_async
+    def edit_message_db(self, message_id, content):
+        try:
+            message = Message.objects.select_related("author").get(
+                id=message_id, channel__server_id=self.server_id, author_id=self.user.id
+            )
+        except (Message.DoesNotExist, ValueError, TypeError):
+            return None
+        message.content = content
+        message.edited_at = timezone.now()
+        message.save(update_fields=["content", "edited_at"])
+        return MessageSerializer(message).data
+
+    async def handle_edit_message(self, data):
+        content = (data.get("content") or "").strip()
+        message_id = data.get("message_id")
+        if not content or message_id is None:
+            return
+        message = await self.edit_message_db(message_id, content)
+        if message is None:
+            return
+        await self.group_send_event({"kind": "message-edited", "message": message})
+
+    @database_sync_to_async
+    def delete_message_db(self, message_id):
+        try:
+            message = Message.objects.get(
+                id=message_id, channel__server_id=self.server_id, author_id=self.user.id
+            )
+        except (Message.DoesNotExist, ValueError, TypeError):
+            return None
+        channel_id = message.channel_id
+        message.delete()
+        return channel_id
+
+    async def handle_delete_message(self, data):
+        message_id = data.get("message_id")
+        if message_id is None:
+            return
+        channel_id = await self.delete_message_db(message_id)
+        if channel_id is None:
+            return
+        await self.group_send_event(
+            {"kind": "message-deleted", "channel_id": channel_id, "message_id": message_id}
+        )
 
 
 class RTCConsumer(BaseServerConsumer):

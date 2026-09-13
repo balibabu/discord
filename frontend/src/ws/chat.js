@@ -24,6 +24,12 @@ export function connectChat(serverId) {
       case 'message':
         app.appendMessage(data.message)
         break
+      case 'message-edited':
+        app.updateMessage(data.message)
+        break
+      case 'message-deleted':
+        app.removeMessage(data.channel_id, data.message_id)
+        break
       case 'member-added':
         app.refreshMembers()
         break
@@ -36,6 +42,18 @@ export function connectChat(serverId) {
 export function sendChatMessage(channelId, content) {
   if (chatWs?.readyState === WebSocket.OPEN && channelId && content.trim()) {
     chatWs.send(JSON.stringify({ type: 'message', channel_id: channelId, content }))
+  }
+}
+
+export function editChatMessage(messageId, content) {
+  if (chatWs?.readyState === WebSocket.OPEN && messageId && content.trim()) {
+    chatWs.send(JSON.stringify({ type: 'edit-message', message_id: messageId, content }))
+  }
+}
+
+export function deleteChatMessage(messageId) {
+  if (chatWs?.readyState === WebSocket.OPEN && messageId) {
+    chatWs.send(JSON.stringify({ type: 'delete-message', message_id: messageId }))
   }
 }
 

@@ -13,7 +13,7 @@ import CreateChannelModal from './modals/CreateChannelModal'
 import AddMemberModal from './modals/AddMemberModal'
 
 export default function AppShell() {
-  const { servers, serversLoaded, loadServers, selectServer, reset } = useApp()
+  const { servers, loadServers, selectServer, reset } = useApp()
   const logout = useAuth((s) => s.logout)
   const navigate = useNavigate()
   const [modal, setModal] = useState(null)
@@ -71,14 +71,6 @@ export default function AppShell() {
       {modal === 'server' && <CreateServerModal onClose={() => setModal(null)} />}
       {modal === 'channel' && <CreateChannelModal onClose={() => setModal(null)} />}
       {modal === 'members' && <AddMemberModal onClose={() => setModal(null)} />}
-
-      {serversLoaded && servers.length === 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-          <div className="pointer-events-auto bg-[#313338]/90 backdrop-blur-xl border border-white/10 rounded-xl px-6 py-4 text-sm text-gray-300 shadow-2xl">
-            No servers yet — click <span className="text-[#23a55a] font-bold">+</span> in the left rail to create one.
-          </div>
-        </div>
-      )}
     </div>
   )
 }

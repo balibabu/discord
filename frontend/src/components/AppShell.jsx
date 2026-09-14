@@ -42,6 +42,18 @@ export default function AppShell() {
   const fallbackNames = voice.participants
     .filter((p) => voice.fallbackPeers.includes(String(p.id)))
     .map((p) => p.username)
+  const fallbackKey = fallbackNames.slice().sort().join(',')
+  const [bannerVisible, setBannerVisible] = useState(false)
+
+  useEffect(() => {
+    if (!voice.inVoice || fallbackNames.length === 0) {
+      setBannerVisible(false)
+      return
+    }
+    setBannerVisible(true)
+    const timer = setTimeout(() => setBannerVisible(false), 5000)
+    return () => clearTimeout(timer)
+  }, [voice.inVoice, fallbackKey])
 
   return (
     <div className="bg-[#313338] text-gray-200 h-screen w-screen flex overflow-hidden font-sans select-none antialiased">
@@ -74,13 +86,13 @@ export default function AppShell() {
 
       <RemoteAudios />
 
-      {voice.inVoice && fallbackNames.length > 0 && (
+      {voice.inVoice && fallbackNames.length > 0 && bannerVisible && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 max-w-[92vw] flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-[#1e1f22]/85 backdrop-blur-xl border border-amber-400/30 shadow-2xl">
           <TriangleAlert className="w-4 h-4 text-amber-400 shrink-0" />
           <span className="text-xs text-amber-100">
-            Hole punching failed with{' '}
-            <span className="font-bold text-amber-300">{fallbackNames.join(', ')}</span> — relaying
-            voice &amp; screen through the server (higher latency)
+            Relaying voice &amp; screen with{' '}
+            <span className="font-bold text-amber-300">{fallbackNames.join(', ')}</span> through the
+            server — switching to P2P when connected
           </span>
         </div>
       )}

@@ -57,9 +57,10 @@ function ScreenVideo({ stream, peer, muted }) {
     if (!ref.current) return
     if (typeof stream === 'string') {
       ref.current.srcObject = null
-      ref.current.src = stream
+      if (ref.current.src !== stream) ref.current.src = stream
       ref.current.play().catch(() => {})
     } else {
+      ref.current.removeAttribute('src')
       ref.current.srcObject = stream
     }
   }, [stream])

@@ -6,6 +6,8 @@ const RTC_CONFIG = {
 }
 
 const CONNECT_TIMEOUT_MS = 12000
+const DISCONNECT_GRACE_MS = 5000
+const COMMIT_FAILSAFE_MS = 1500
 const AUDIO_SLICE_MS = 500
 const SCREEN_SLICE_MS = 1000
 const MAX_BUFFER_SECONDS = 45
@@ -14,10 +16,12 @@ let ws = null
 let localStream = null
 let screenStream = null
 let peers = {}
-let connTimers = {}
-let restartCounts = {}
-let fallbacks = {}
+let relay = {}
 let playback = {}
+let upgraded = {}
+let restartCounts = {}
+let connTimers = {}
+let commitTimers = {}
 
 const myId = () => useAuth.getState().user?.id
 
@@ -69,13 +73,27 @@ function stopLocalTracks() {
 }
 
 function teardownAllPeers() {
-  for (const peerId of Object.keys(peers)) removePeer(peerId)
-  for (const key of Object.keys(fallbacks)) teardownFallback(key)
+  for (const key of Object.keys(peers)) {
+    try {
+      peers[key].pc.close()
+    } catch {}
+  }
+  for (const key of Object.keys(relay)) {
+    stopRecorder(relay[key].audio)
+    stopRecorder(relay[key].screen)
+  }
   for (const key of Object.keys(playback)) teardownPlayback(key)
+  peers = {}
+  relay = {}
+  upgraded = {}
+  restartCounts = {}
+  for (const key of Object.keys(connTimers)) clearTimeout(connTimers[key])
+  connTimers = {}
+  for (const key of Object.keys(commitTimers)) clearTimeout(commitTimers[key])
+  commitTimers = {}
 }
 
-function removePeer(peerId) {
-  const key = String(peerId)
+function removePeer(key) {
   const peer = peers[key]
   if (peer) {
     try {
@@ -83,7 +101,17 @@ function removePeer(peerId) {
     } catch {}
     delete peers[key]
   }
-  if (fallbacks[key] || playback[key]) teardownFallback(key)
+  const entry = relay[key]
+  if (entry) {
+    stopRecorder(entry.audio)
+    stopRecorder(entry.screen)
+    delete relay[key]
+  }
+  teardownPlayback(key)
+  clearConnTimer(key)
+  clearCommitTimer(key)
+  delete upgraded[key]
+  delete restartCounts[key]
   useVoice.getState().removePeer(key)
 }
 
@@ -94,21 +122,23 @@ function clearConnTimer(key) {
   }
 }
 
-function setConnTimer(key) {
+function setConnTimer(key, delay, fn) {
   clearConnTimer(key)
-  connTimers[key] = setTimeout(() => {
-    const pc = peers[key]?.pc
-    if (!pc || pc.connectionState === 'connected') return
-    engageFallback(key)
-  }, CONNECT_TIMEOUT_MS)
+  connTimers[key] = setTimeout(fn, delay)
+}
+
+function clearCommitTimer(key) {
+  if (commitTimers[key]) {
+    clearTimeout(commitTimers[key])
+    delete commitTimers[key]
+  }
 }
 
 function ensurePeer(peerId, initiator) {
   const key = String(peerId)
-  if (fallbacks[key]) return null
   if (peers[key]) return peers[key]
   const pc = new RTCPeerConnection(RTC_CONFIG)
-  peers[key] = { pc }
+  peers[key] = { pc, remoteAudio: null, remoteScreen: null }
 
   if (localStream) localStream.getTracks().forEach((t) => pc.addTrack(t, localStream))
   if (screenStream) screenStream.getTracks().forEach((t) => pc.addTrack(t, screenStream))
@@ -123,43 +153,54 @@ function ensurePeer(peerId, initiator) {
     if (pc.connectionState === 'connected') {
       clearConnTimer(key)
       restartCounts[key] = 0
+      scheduleCommit(key)
+    } else if (pc.connectionState === 'disconnected') {
+      setConnTimer(key, DISCONNECT_GRACE_MS, () => {
+        if (pc.connectionState === 'connected') return
+        upgraded[key] = false
+        startRelay(key)
+        send({ type: 'signal', target: key, payload: { rtcDown: true } })
+        tryIceRestart(key)
+      })
     } else if (pc.connectionState === 'failed') {
       clearConnTimer(key)
       if ((restartCounts[key] || 0) === 0) {
         restartCounts[key] = 1
-        try {
-          pc.restartIce()
-          setConnTimer(key)
-          negotiate(key)
-        } catch {
-          engageFallback(key)
-        }
+        tryIceRestart(key)
       } else {
-        engageFallback(key)
+        abandonPeer(key)
       }
     }
   }
 
   pc.ontrack = (event) => {
     const stream = event.streams[0]
+    const peer = peers[key]
+    if (!peer) return
     if (event.track.kind === 'audio') {
-      useVoice.getState().setRemoteAudio(key, stream)
+      peer.remoteAudio = stream
+      if (upgraded[key]) useVoice.getState().setRemoteAudio(key, stream)
+      else scheduleCommit(key)
     } else if (event.track.kind === 'video') {
-      useVoice.getState().setScreen(key, stream)
+      peer.remoteScreen = stream
+      if (upgraded[key]) useVoice.getState().setScreen(key, stream)
     }
   }
 
-  setConnTimer(key)
+  setConnTimer(key, CONNECT_TIMEOUT_MS, () => abandonPeer(key))
   if (initiator) negotiate(key)
   return peers[key]
 }
 
 async function negotiate(peerKey) {
   const peer = peers[peerKey]
-  if (!peer) return
-  const offer = await peer.pc.createOffer()
-  await peer.pc.setLocalDescription(offer)
-  send({ type: 'signal', target: peerKey, payload: { sdp: offer } })
+  if (!peer || peer.pc.connectionState === 'closed') return
+  try {
+    const offer = await peer.pc.createOffer()
+    if (peers[peerKey] !== peer) return
+    await peer.pc.setLocalDescription(offer)
+    send({ type: 'signal', target: peerKey, payload: { sdp: offer } })
+  } catch {}
 }
 
 function handleVoiceState(participants) {
@@ -168,27 +209,41 @@ function handleVoiceState(participants) {
     teardownAllPeers()
     return
   }
+  const me = String(myId())
   const active = new Set(participants.map((p) => String(p.id)))
-  for (const peerKey of Object.keys(peers)) {
-    if (!active.has(peerKey)) removePeer(peerKey)
+  for (const key of Object.keys(peers)) {
+    if (!active.has(key)) removePeer(key)
   }
-  for (const key of [...Object.keys(fallbacks), ...Object.keys(playback)]) {
+  for (const key of Object.keys(relay)) {
+    if (!active.has(key)) removePeer(key)
+  }
+  for (const key of Object.keys(playback)) {
     if (!active.has(key)) removePeer(key)
   }
   const sharingIds = new Set(participants.filter((p) => p.sharing).map((p) => String(p.id)))
   useVoice.getState().pruneScreens(sharingIds)
+  for (const p of participants) {
+    const key = String(p.id)
+    if (key === me || upgraded[key]) continue
+    startRelay(key)
+  }
 }
 
 function handlePeerJoined(peerId) {
   if (!useVoice.getState().inVoice) return
+  const key = String(peerId)
+  startRelay(key)
   ensurePeer(peerId, true)
 }
 
 async function handleSignal(sender, payload) {
   const key = String(sender)
+  if (payload.rtcDown) {
+    handleRtcDown(key)
+    return
+  }
   if (payload.sdp) {
     if (payload.sdp.type === 'offer') {
-      if (fallbacks[key]) return
       const peer = ensurePeer(sender, false)
       if (!peer) return
       const polite = myId() < sender
@@ -205,13 +260,100 @@ async function handleSignal(sender, payload) {
       await peer.pc.setLocalDescription(answer)
       send({ type: 'signal', target: sender, payload: { sdp: answer } })
     } else if (peers[key]) {
-      await peers[key].pc.setRemoteDescription(payload.sdp)
+      try {
+        await peers[key].pc.setRemoteDescription(payload.sdp)
+      } catch {}
     }
   } else if (payload.candidate && peers[key]) {
     try {
       await peers[key].pc.addIceCandidate(payload.candidate)
     } catch {}
   }
+}
+
+function handleRtcDown(key) {
+  if (!useVoice.getState().inVoice) return
+  upgraded[key] = false
+  startRelay(key)
+}
+
+function tryIceRestart(key) {
+  const peer = peers[key]
+  if (!peer) return
+  try {
+    peer.pc.restartIce()
+    setConnTimer(key, CONNECT_TIMEOUT_MS, () => abandonPeer(key))
+    negotiate(key)
+  } catch {
+    abandonPeer(key)
+  }
+}
+
+function abandonPeer(key) {
+  clearConnTimer(key)
+  clearCommitTimer(key)
+  const peer = peers[key]
+  if (peer) {
+    try {
+      peer.pc.close()
+    } catch {}
+    delete peers[key]
+  }
+  delete restartCounts[key]
+  upgraded[key] = false
+  startRelay(key)
+  send({ type: 'signal', target: key, payload: { rtcDown: true } })
+}
+
+function scheduleCommit(key) {
+  const peer = peers[key]
+  if (!peer || upgraded[key] || commitTimers[key]) return
+  if (peer.pc.connectionState !== 'connected') return
+  const commit = () => upgradePeer(key)
+  const track = peer.remoteAudio?.getAudioTracks()[0]
+  if (!track) return
+  if (!track.muted) {
+    commit()
+    return
+  }
+  track.addEventListener('unmute', commit, { once: true })
+  commitTimers[key] = setTimeout(commit, COMMIT_FAILSAFE_MS)
+}
+
+function upgradePeer(key) {
+  clearCommitTimer(key)
+  if (upgraded[key]) return
+  const peer = peers[key]
+  if (!peer) return
+  upgraded[key] = true
+  const voice = useVoice.getState()
+  if (peer.remoteAudio) voice.setRemoteAudio(key, peer.remoteAudio)
+  if (peer.remoteScreen) voice.setScreen(key, peer.remoteScreen)
+  teardownPlayback(key)
+  const entry = relay[key]
+  if (entry) {
+    stopRecorder(entry.audio)
+    stopRecorder(entry.screen)
+    entry.audio = null
+    entry.screen = null
+  }
+  voice.setFallback(key, false)
+}
+
+function startRelay(key) {
+  upgraded[key] = false
+  useVoice.getState().setFallback(key, true)
+  let fresh = false
+  const entry = (relay[key] = relay[key] || { audio: null, screen: null })
+  if (localStream && !entry.audio) {
+    entry.audio = startRecorder(localStream, 'audio', key)
+    fresh = fresh || entry.audio !== null
+  }
+  if (screenStream && !entry.screen) {
+    entry.screen = startRecorder(screenStream, 'screen', key)
+    fresh = fresh || entry.screen !== null
+  }
+  if (fresh) teardownPlayback(key)
 }
 
 function pickMime(candidates) {
@@ -269,41 +411,6 @@ function stopRecorder(recorder) {
     recorder.ondataavailable = null
     if (recorder.state !== 'inactive') recorder.stop()
   } catch {}
-}
-
-function startFallbackSenders(key) {
-  const fb = fallbacks[key]
-  if (!fb) return
-  if (localStream && !fb.audio) fb.audio = startRecorder(localStream, 'audio', key)
-  if (screenStream && !fb.screen) fb.screen = startRecorder(screenStream, 'screen', key)
-}
-
-function engageFallback(key) {
-  clearConnTimer(key)
-  const peer = peers[key]
-  if (peer) {
-    try {
-      peer.pc.close()
-    } catch {}
-    delete peers[key]
-  }
-  if (fallbacks[key]) return
-  fallbacks[key] = { audio: null, screen: null }
-  useVoice.getState().setFallback(key, true)
-  startFallbackSenders(key)
-}
-
-function teardownFallback(key) {
-  clearConnTimer(key)
-  delete restartCounts[key]
-  const fb = fallbacks[key]
-  if (fb) {
-    stopRecorder(fb.audio)
-    stopRecorder(fb.screen)
-    delete fallbacks[key]
-  }
-  teardownPlayback(key)
-  useVoice.getState().setFallback(key, false)
 }
 
 function defaultMime(kind) {
@@ -410,6 +517,7 @@ function teardownPlayback(key) {
 function handleMediaChunk(data) {
   if (!useVoice.getState().inVoice) return
   const key = String(data.sender)
+  if (upgraded[key]) return
   const kind = data.media_kind
   if (kind !== 'audio' && kind !== 'screen') return
   const pb = ensurePlayback(key, kind, data.mime)
@@ -477,13 +585,14 @@ export async function startScreenShare() {
   voice.setScreen(String(myId()), screenStream)
   voice.setLocalState({ sharing: true })
   send({ type: 'state-update', sharing: true })
-  for (const peerKey of Object.keys(peers)) {
-    screenStream.getTracks().forEach((t) => peers[peerKey].pc.addTrack(t, screenStream))
-    await negotiate(peerKey)
+  for (const key of Object.keys(peers)) {
+    const peer = peers[key]
+    screenStream.getTracks().forEach((t) => peer.pc.addTrack(t, screenStream))
+    negotiate(key)
   }
-  for (const key of Object.keys(fallbacks)) {
-    const fb = fallbacks[key]
-    if (!fb.screen) fb.screen = startRecorder(screenStream, 'screen', key)
+  for (const key of Object.keys(relay)) {
+    const entry = relay[key]
+    if (!entry.screen) entry.screen = startRecorder(screenStream, 'screen', key)
   }
 }
 
@@ -496,9 +605,9 @@ export function stopScreenShare() {
     peer.pc.getSenders().filter((s) => s.track?.kind === 'video').forEach((s) => peer.pc.removeTrack(s))
     negotiate(peerKey)
   }
-  for (const key of Object.keys(fallbacks)) {
-    stopRecorder(fallbacks[key].screen)
-    fallbacks[key].screen = null
+  for (const key of Object.keys(relay)) {
+    stopRecorder(relay[key].screen)
+    relay[key].screen = null
   }
   const screens = { ...useVoice.getState().screens }
   delete screens[String(myId())]

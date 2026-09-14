@@ -22,8 +22,7 @@ export default function ChannelSidebar({ onAddChannel, onCloseDrawer }) {
   const voiceParticipants = voice.participants
 
   const clickVoiceChannel = (channel) => {
-    if (voice.inVoice) leaveVoice()
-    else joinVoice(channel.name)
+    if (!voice.inVoice) joinVoice(channel.name)
     onCloseDrawer?.()
   }
 

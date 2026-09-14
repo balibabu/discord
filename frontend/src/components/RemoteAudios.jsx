@@ -21,8 +21,9 @@ function AudioNode({ peer, stream, muted }) {
     if (!ref.current) return
     if (typeof stream === 'string') {
       ref.current.srcObject = null
-      ref.current.src = stream
+      if (ref.current.src !== stream) ref.current.src = stream
     } else {
+      ref.current.removeAttribute('src')
       ref.current.srcObject = stream
     }
     ref.current.play().catch(() => {})

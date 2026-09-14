@@ -1,11 +1,18 @@
+import shutil
+import tempfile
+from pathlib import Path
+
 from django.contrib.auth import get_user_model
 from channels.db import database_sync_to_async
 from channels.testing import WebsocketCommunicator
-from django.test import TransactionTestCase
+from django.conf import settings
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, TransactionTestCase, override_settings
 from rest_framework.authtoken.models import Token
 
 from config.asgi import application
 from .models import Channel, Membership, Message, Server
+from .serializers import MessageSerializer
 
 User = get_user_model()
 
@@ -71,7 +78,66 @@ class MessageEditDeleteTests(TransactionTestCase):
         await other_comm.disconnect()
 
 
-class RelayMediaTests(TransactionTestCase):
+class UploadTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="upowner", password="pass1234")
+        self.outsider = User.objects.create_user(username="upoutsider", password="pass1234")
+        self.server = Server.objects.create(name="srv", owner=self.owner)
+        Membership.objects.create(server=self.server, user=self.owner, role=Membership.ROLE_OWNER)
+        self.channel = Channel.objects.create(server=self.server, name="general", type=Channel.TYPE_TEXT)
+        self.owner_token = Token.objects.create(user=self.owner)
+        self.outsider_token = Token.objects.create(user=self.outsider)
+        self.url = f"/api/servers/{self.server.id}/channels/{self.channel.id}/upload/"
+        self.media_root = Path(tempfile.mkdtemp(prefix="nexus-test-media-"))
+        media_override = override_settings(MEDIA_ROOT=self.media_root)
+        media_override.enable()
+        self.addCleanup(media_override.disable)
+        self.addCleanup(shutil.rmtree, self.media_root, ignore_errors=True)
+
+    def _client(self, token):
+        from django.test import Client
+
+        client = Client()
+        client.defaults["HTTP_AUTHORIZATION"] = f"Token {token.key}"
+        return client
+
+    def test_upload_creates_message_with_attachment(self):
+        upload = SimpleUploadedFile("pic.png", b"filedata", content_type="image/png")
+        response = self._client(self.owner_token).post(
+            self.url, {"file": upload, "content": "look at this"}
+        )
+        self.assertEqual(response.status_code, 201)
+        message = Message.objects.get(channel=self.channel)
+        self.assertEqual(message.content, "look at this")
+        self.assertIn("uploads/", message.attachment.name)
+        attachment = MessageSerializer(message).data["attachment"]
+        self.assertEqual(attachment["name"], "pic.png")
+        self.assertEqual(attachment["size"], 8)
+        self.assertTrue(attachment["url"].startswith("/media/uploads/"))
+
+    def test_upload_without_content(self):
+        upload = SimpleUploadedFile("notes.txt", b"hello", content_type="text/plain")
+        response = self._client(self.owner_token).post(self.url, {"file": upload})
+        self.assertEqual(response.status_code, 201)
+        message = Message.objects.get(channel=self.channel)
+        self.assertEqual(message.content, "")
+        self.assertIn("uploads/", message.attachment.name)
+
+    def test_upload_rejects_non_member(self):
+        upload = SimpleUploadedFile("pic.png", b"filedata", content_type="image/png")
+        response = self._client(self.outsider_token).post(self.url, {"file": upload})
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Message.objects.exists())
+
+    def test_upload_rejects_missing_file(self):
+        response = self._client(self.owner_token).post(self.url, {"content": "no file"})
+        self.assertEqual(response.status_code, 400)
+
+    def test_upload_rejects_oversized_file(self):
+        upload = SimpleUploadedFile("big.bin", b"x" * (settings.MAX_UPLOAD_SIZE + 1))
+        response = self._client(self.owner_token).post(self.url, {"file": upload})
+        self.assertEqual(response.status_code, 413)
+        self.assertFalse(Message.objects.exists())
     async def test_relay_media_reaches_only_target(self):
         owner = await database_sync_to_async(User.objects.create_user)(username="owner", password="pass1234")
         other = await database_sync_to_async(User.objects.create_user)(username="other", password="pass1234")

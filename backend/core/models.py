@@ -60,6 +60,7 @@ class Message(models.Model):
     channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="messages")
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="messages")
     content = models.TextField()
+    attachment = models.FileField(upload_to="uploads/%Y/%m/%d/", blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     edited_at = models.DateTimeField(null=True, blank=True)
 

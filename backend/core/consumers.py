@@ -152,6 +152,8 @@ class ChatConsumer(BaseServerConsumer):
         except (Message.DoesNotExist, ValueError, TypeError):
             return None
         channel_id = message.channel_id
+        if message.attachment:
+            message.attachment.delete(save=False)
         message.delete()
         return channel_id
 

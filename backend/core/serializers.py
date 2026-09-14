@@ -80,7 +80,17 @@ class ServerDetailSerializer(ServerSerializer):
 
 class MessageSerializer(serializers.ModelSerializer):
     author = UserSerializer(read_only=True)
+    attachment = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
-        fields = ["id", "channel", "author", "content", "created_at", "edited_at"]
+        fields = ["id", "channel", "author", "content", "attachment", "created_at", "edited_at"]
+
+    def get_attachment(self, obj):
+        if not obj.attachment:
+            return None
+        return {
+            "url": obj.attachment.url,
+            "name": obj.attachment.name.rsplit("/", 1)[-1],
+            "size": obj.attachment.size,
+        }

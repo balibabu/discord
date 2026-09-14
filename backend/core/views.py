@@ -1,4 +1,6 @@
+from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.db import transaction
 from rest_framework import status
@@ -128,6 +130,30 @@ async def broadcast_to_server(server_id, event):
     await layer.group_send(f"rtc.{server_id}", {"type": "server.event", "event": event})
 
 
+class MessageUploadView(APIView):
+    def post(self, request, server_id, channel_id):
+        server, membership = get_membership_or_none(request.user, server_id)
+        if membership is None:
+            return Response({"error": "Not a member of this server."}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            channel = server.channels.get(id=channel_id, type=Channel.TYPE_TEXT)
+        except Channel.DoesNotExist:
+            return Response({"error": "Channel not found."}, status=status.HTTP_404_NOT_FOUND)
+        file = request.FILES.get("file")
+        if file is None:
+            return Response({"error": "No file provided."}, status=status.HTTP_400_BAD_REQUEST)
+        if file.size > settings.MAX_UPLOAD_SIZE:
+            return Response({"error": "File exceeds the 10 MB limit."}, status=413)
+        content = (request.data.get("content") or "").strip()
+        message = Message.objects.create(
+            channel=channel, author=request.user, content=content, attachment=file
+        )
+        async_to_sync(broadcast_to_server)(
+            server.id, {"kind": "message", "message": MessageSerializer(message).data}
+        )
+        return Response({"ok": True}, status=status.HTTP_201_CREATED)
+
+
 class MemberAddView(APIView):
     def post(self, request, server_id):
         server, membership = get_membership_or_none(request.user, server_id)
@@ -143,8 +169,6 @@ class MemberAddView(APIView):
         )
         if not created:
             return Response({"error": "Already a member."}, status=status.HTTP_400_BAD_REQUEST)
-
-        from asgiref.sync import async_to_sync
 
         async_to_sync(broadcast_to_server)(
             server.id,

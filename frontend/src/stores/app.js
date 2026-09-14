@@ -46,8 +46,28 @@ export const useApp = create((set, get) => ({
     set((s) => ({ messages: { ...s.messages, [channelId]: data } }))
   },
 
-  sendMessage: (content) => {
-    sendChatMessage(get().activeChannelId, content)
+  sendMessage: (content, files = []) => {
+    if (files.length > 0) {
+      return get().sendFiles(files, content)
+    }
+    if (content.trim()) {
+      sendChatMessage(get().activeChannelId, content)
+    }
+  },
+
+  sendFiles: async (files, content = '') => {
+    const serverId = get().activeServerId
+    const channelId = get().activeChannelId
+    if (!serverId || !channelId) return false
+    const results = await Promise.allSettled(
+      files.map((file, index) => {
+        const form = new FormData()
+        form.append('file', file)
+        form.append('content', index === 0 ? content : '')
+        return api.post(`/servers/${serverId}/channels/${channelId}/upload/`, form)
+      })
+    )
+    return results.every((r) => r.status === 'fulfilled')
   },
 
   editMessage: (messageId, content) => {

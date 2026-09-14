@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from django.conf import settings
 from django.contrib import admin
 from django.http import FileResponse
 from django.urls import path, re_path
@@ -34,9 +35,14 @@ urlpatterns = [
         "api/servers/<int:server_id>/channels/<int:channel_id>/messages/",
         views.MessageListView.as_view(),
     ),
+    path(
+        "api/servers/<int:server_id>/channels/<int:channel_id>/upload/",
+        views.MessageUploadView.as_view(),
+    ),
     path("api/servers/<int:server_id>/members/", views.MemberAddView.as_view()),
+    re_path(r"^media/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}),
     re_path(r"^assets/(?P<path>.*)$", serve, {"document_root": FRONTEND_DIST / "assets"}),
     re_path(r"^(?P<path>favicon\.svg|icons\.svg)$", serve, {"document_root": FRONTEND_DIST}),
     re_path(r"^$", index),
-    re_path(r"^(?!api/|ws/|admin/|assets/).*$", spa),
+    re_path(r"^(?!api/|ws/|admin/|assets/|media/).*$", spa),
 ]

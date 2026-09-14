@@ -25,6 +25,7 @@ export default function AppShell() {
   const [modal, setModal] = useState(null)
   const [leftOpen, setLeftOpen] = useState(false)
   const [rightOpen, setRightOpen] = useState(false)
+  const anyDrawerOpen = leftOpen || rightOpen
   const bootstrapped = useRef(false)
 
   useEffect(() => {
@@ -42,8 +43,12 @@ export default function AppShell() {
     navigate('/login', { replace: true })
   }
 
-  const anyDrawerOpen = leftOpen || rightOpen
-  const fallbackNames = voice.participants
+  const activeServerId = useApp((s) => s.activeServerId)
+  const voiceServerHere = voice.inVoice && String(voice.voiceServerId) === String(activeServerId)
+  const activeParticipants = voiceServerHere
+    ? voice.participants
+    : voice.serverParticipants[voice.voiceServerId] || []
+  const fallbackNames = activeParticipants
     .filter((p) => voice.fallbackPeers.includes(String(p.id)))
     .map((p) => p.username)
   const fallbackKey = fallbackNames.slice().sort().join(',')

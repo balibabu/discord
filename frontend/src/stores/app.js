@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import { connectChat, disconnectChat, sendChatMessage, editChatMessage, deleteChatMessage } from '../ws/chat'
-import { connectRtc, disconnectRtc, leaveVoice } from '../ws/rtc'
+import { connectChat, sendChatMessage, editChatMessage, deleteChatMessage, disconnectAllChat } from '../ws/chat'
+import { connectRtc, leaveVoice, disconnectAllRtc } from '../ws/rtc'
 import { playSend } from '../lib/sounds'
 import { useVoice } from './voice'
 
@@ -12,7 +12,7 @@ export const useApp = create((set, get) => ({
   serverDetail: null,
   activeChannelId: null,
   messages: {},
-  online: [],
+  onlineByServer: {},
 
   loadServers: async () => {
     const { data } = await api.get('/servers/')
@@ -21,17 +21,13 @@ export const useApp = create((set, get) => ({
   },
 
   selectServer: async (serverId) => {
-    leaveVoice()
-    useVoice.getState().reset()
-    disconnectChat()
-    disconnectRtc()
-    set({ activeServerId: serverId, serverDetail: null, activeChannelId: null, online: [], messages: {} })
+    set({ activeServerId: serverId, serverDetail: null, activeChannelId: null })
+    connectChat(serverId)
+    connectRtc(serverId)
     const { data } = await api.get(`/servers/${serverId}/`)
     if (get().activeServerId !== serverId) return
     const firstText = data.channels.find((c) => c.type === 'text')
     set({ serverDetail: data, activeChannelId: firstText ? firstText.id : null })
-    connectChat(serverId)
-    connectRtc(serverId)
     if (firstText) get().loadMessages(firstText.id)
   },
 
@@ -113,10 +109,25 @@ export const useApp = create((set, get) => ({
     })
   },
 
-  setOnline: (userIds) => set({ online: userIds }),
-  addOnline: (userId) =>
-    set((s) => (s.online.includes(userId) ? s : { online: [...s.online, userId] })),
-  removeOnline: (userId) => set((s) => ({ online: s.online.filter((id) => id !== userId) })),
+  setOnline: (serverId, userIds) =>
+    set((s) => ({ onlineByServer: { ...s.onlineByServer, [serverId]: userIds } })),
+  addOnline: (serverId, userId) =>
+    set((s) => {
+      const current = s.onlineByServer[serverId] || []
+      if (current.includes(userId)) return s
+      return { onlineByServer: { ...s.onlineByServer, [serverId]: [...current, userId] } }
+    }),
+  removeOnline: (serverId, userId) =>
+    set((s) => {
+      const current = s.onlineByServer[serverId]
+      if (!current) return s
+      return {
+        onlineByServer: {
+          ...s.onlineByServer,
+          [serverId]: current.filter((id) => id !== userId),
+        },
+      }
+    }),
 
   createServer: async (name) => {
     const { data } = await api.post('/servers/', { name })
@@ -142,7 +153,7 @@ export const useApp = create((set, get) => ({
 
   applyChannelUpdate: (channel) => {
     set((s) => {
-      if (!s.serverDetail) return s
+      if (!s.serverDetail || s.serverDetail.id !== channel.server) return s
       const channels = s.serverDetail.channels
         .map((c) => (c.id === channel.id ? channel : c))
         .slice()
@@ -165,9 +176,9 @@ export const useApp = create((set, get) => ({
 
   reset: () => {
     leaveVoice()
+    disconnectAllChat()
+    disconnectAllRtc()
     useVoice.getState().reset()
-    disconnectChat()
-    disconnectRtc()
     set({
       servers: [],
       serversLoaded: false,
@@ -175,7 +186,7 @@ export const useApp = create((set, get) => ({
       serverDetail: null,
       activeChannelId: null,
       messages: {},
-      online: [],
+      onlineByServer: {},
     })
   },
 }))

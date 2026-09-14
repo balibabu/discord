@@ -66,7 +66,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 class ChannelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Channel
-        fields = ["id", "name", "type", "position", "created_at"]
+        fields = ["id", "server", "name", "type", "position", "created_at"]
 
 
 class ChannelUpdateSerializer(serializers.ModelSerializer):

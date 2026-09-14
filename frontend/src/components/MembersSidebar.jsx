@@ -5,15 +5,18 @@ import { useVoice } from '../stores/voice'
 import Avatar from './Avatar'
 
 export default function MembersSidebar({ open, onCloseDrawer, onAddMember }) {
-  const { serverDetail, online } = useApp()
+  const { serverDetail, activeServerId, onlineByServer } = useApp()
+  const serverParticipants = useVoice((s) => s.serverParticipants)
+  const voiceParticipants = serverParticipants[activeServerId] || []
   const me = useAuth((s) => s.user)
+  const online = onlineByServer[activeServerId] || []
 
   const members = serverDetail?.members || []
   const onlineMembers = members.filter((m) => online.includes(m.user.id))
   const offlineMembers = members.filter((m) => !online.includes(m.user.id))
 
   const renderCard = (m, isOnline) => {
-    const speaking = useVoice.getState().participants.some((p) => p.id === m.user.id)
+    const speaking = voiceParticipants.some((p) => p.id === m.user.id)
     return (
       <div
         key={m.id}

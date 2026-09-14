@@ -22,8 +22,10 @@ const COMMIT_FAILSAFE_MS = 1500
 const AUDIO_SLICE_MS = 500
 const SCREEN_SLICE_MS = 1000
 const MAX_BUFFER_SECONDS = 45
+const RECONNECT_MS = 4000
 
-let ws = null
+const rtcSockets = {}
+
 let localStream = null
 let screenStream = null
 let peers = {}
@@ -37,43 +39,77 @@ let commitTimers = {}
 const myId = () => useAuth.getState().user?.id
 
 function send(data) {
-  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data))
+  const voiceServer = useVoice.getState().voiceServerId
+  const ws = voiceServer ? rtcSockets[voiceServer] : null
+  if (ws?.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data))
+    return true
+  }
+  return false
 }
 
-export function connectRtc(sid) {
-  disconnectRtc()
+export function connectRtc(serverId) {
+  if (rtcSockets[serverId]) return
   const token = localStorage.getItem('token')
+  if (!token) return
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-  ws = new WebSocket(`${protocol}://${location.host}/ws/rtc/${sid}/?token=${token}`)
+  const ws = new WebSocket(`${protocol}://${location.host}/ws/rtc/${serverId}/?token=${token}`)
+  ws.onopen = () => {
+    const voice = useVoice.getState()
+    if (String(serverId) === String(voice.voiceServerId) && voice.inVoice) {
+      ws.send(JSON.stringify({ type: 'join-voice', channel: voice.voiceChannelName }))
+      ws.send(
+        JSON.stringify({
+          type: 'state-update',
+          muted: voice.muted,
+          deafened: voice.deafened,
+          sharing: voice.sharing,
+        })
+      )
+    }
+  }
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data)
     switch (data.kind) {
       case 'voice-state':
-        handleVoiceState(data.participants)
+        handleVoiceState(serverId, data.participants)
         break
       case 'peer-joined':
-        handlePeerJoined(data.peer_id)
+        handlePeerJoined(serverId, data.peer_id)
         break
       case 'signal':
-        handleSignal(data.sender, data.payload)
+        handleSignal(serverId, data.sender, data.payload)
         break
       case 'media-chunk':
-        handleMediaChunk(data)
+        handleMediaChunk(serverId, data)
         break
       default:
         break
     }
   }
+  ws.onclose = (event) => {
+    if (rtcSockets[serverId] !== ws) return
+    delete rtcSockets[serverId]
+    scheduleReconnect(serverId, event.code)
+  }
+  rtcSockets[serverId] = ws
 }
 
-export function disconnectRtc() {
+function scheduleReconnect(serverId, code) {
+  if (code === 1000 || code === 4001) return
+  if (!localStorage.getItem('token')) return
+  setTimeout(() => connectRtc(serverId), RECONNECT_MS)
+}
+
+export function disconnectAllRtc() {
+  for (const serverId of Object.keys(rtcSockets)) {
+    const ws = rtcSockets[serverId]
+    ws.onclose = null
+    ws.close()
+    delete rtcSockets[serverId]
+  }
   teardownAllPeers()
   stopLocalTracks()
-  if (ws) {
-    ws.onmessage = null
-    ws.close()
-    ws = null
-  }
 }
 
 function stopLocalTracks() {
@@ -214,7 +250,9 @@ async function negotiate(peerKey) {
   } catch {}
 }
 
-function handleVoiceState(participants) {
+function handleVoiceState(serverId, participants) {
+  useVoice.getState().setServerParticipants(serverId, participants)
+  if (String(serverId) !== String(useVoice.getState().voiceServerId)) return
   const prev = useVoice.getState().participants
   if (useVoice.getState().inVoice) {
     const known = new Set(prev.map((p) => String(p.id)))
@@ -246,17 +284,18 @@ function handleVoiceState(participants) {
   }
 }
 
-function handlePeerJoined(peerId) {
-  if (!useVoice.getState().inVoice) return
+function handlePeerJoined(serverId, peerId) {
+  const voice = useVoice.getState()
+  if (!voice.inVoice || String(serverId) !== String(voice.voiceServerId)) return
   const key = String(peerId)
   startRelay(key)
   ensurePeer(peerId, true)
 }
 
-async function handleSignal(sender, payload) {
+async function handleSignal(serverId, sender, payload) {
   const key = String(sender)
   if (payload.rtcDown) {
-    handleRtcDown(key)
+    handleRtcDown(serverId, key)
     return
   }
   if (payload.sdp) {
@@ -288,8 +327,9 @@ async function handleSignal(sender, payload) {
   }
 }
 
-function handleRtcDown(key) {
-  if (!useVoice.getState().inVoice) return
+function handleRtcDown(serverId, key) {
+  const voice = useVoice.getState()
+  if (!voice.inVoice || String(serverId) !== String(voice.voiceServerId)) return
   upgraded[key] = false
   startRelay(key)
 }
@@ -531,8 +571,9 @@ function teardownPlayback(key) {
   }
 }
 
-function handleMediaChunk(data) {
-  if (!useVoice.getState().inVoice) return
+function handleMediaChunk(serverId, data) {
+  const voice = useVoice.getState()
+  if (!voice.inVoice || String(serverId) !== String(voice.voiceServerId)) return
   const key = String(data.sender)
   if (upgraded[key]) return
   const kind = data.media_kind
@@ -544,18 +585,23 @@ function handleMediaChunk(data) {
   flushPlayback(pb)
 }
 
-export async function joinVoice(channelName) {
+export async function joinVoice(serverId, channelName) {
   if (useVoice.getState().inVoice) return
+  if (!rtcSockets[serverId]) connectRtc(serverId)
   localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
   playJoinVoice()
   useVoice.getState().setLocalState({
     inVoice: true,
+    voiceServerId: serverId,
     voiceChannelName: channelName,
     muted: false,
     deafened: false,
     sharing: false,
   })
-  send({ type: 'join-voice', channel: channelName })
+  const ws = rtcSockets[serverId]
+  if (ws?.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'join-voice', channel: channelName }))
+  }
 }
 
 export function leaveVoice() {

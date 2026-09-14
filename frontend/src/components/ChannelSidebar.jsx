@@ -6,7 +6,7 @@ import { joinVoice, leaveVoice, toggleMute, toggleDeafen } from '../ws/rtc'
 import Avatar from './Avatar'
 
 export default function ChannelSidebar({ onAddChannel, onChannelSettings, onOpenProfile, onCloseDrawer }) {
-  const { serverDetail, activeChannelId, selectChannel } = useApp()
+  const { serverDetail, activeServerId, activeChannelId, selectChannel } = useApp()
   const user = useAuth((s) => s.user)
   const voice = useVoice()
 
@@ -20,10 +20,13 @@ export default function ChannelSidebar({ onAddChannel, onChannelSettings, onOpen
 
   const textChannels = serverDetail.channels.filter((c) => c.type === 'text')
   const voiceChannels = serverDetail.channels.filter((c) => c.type === 'voice')
-  const voiceParticipants = voice.participants
+  const voiceServerHere = voice.inVoice && String(voice.voiceServerId) === String(activeServerId)
+  const voiceParticipants = voiceServerHere
+    ? voice.participants
+    : voice.serverParticipants[activeServerId] || []
 
   const clickVoiceChannel = (channel) => {
-    if (!voice.inVoice) joinVoice(channel.name)
+    if (!voice.inVoice) joinVoice(activeServerId, channel.name)
     onCloseDrawer?.()
   }
 
@@ -88,7 +91,7 @@ export default function ChannelSidebar({ onAddChannel, onChannelSettings, onOpen
           </div>
           <div className="space-y-2">
             {voiceChannels.map((channel) => {
-              const connected = voice.inVoice && voice.voiceChannelName === channel.name
+              const connected = voiceServerHere && voice.voiceChannelName === channel.name
               const channelParticipants = voiceParticipants.filter((p) => p.channel === channel.name)
               return (
                 <div key={channel.id}>
@@ -139,7 +142,10 @@ export default function ChannelSidebar({ onAddChannel, onChannelSettings, onOpen
             <Activity className="w-5 h-5 text-[#23a55a] shrink-0 animate-pulse" />
             <div className="leading-tight truncate">
               <div className="text-xs font-bold text-[#23a55a]">Voice Connected</div>
-              <div className="text-[11px] text-gray-400 truncate">{voice.voiceChannelName}</div>
+              <div className="text-[11px] text-gray-400 truncate">
+                {voice.voiceChannelName}
+                {!voiceServerHere && <span className="text-[#23a55a] font-semibold"> · other server</span>}
+              </div>
             </div>
           </div>
           <button

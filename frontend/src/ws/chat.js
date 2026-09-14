@@ -3,79 +3,104 @@ import { useAuth } from '../stores/auth'
 import { playSend, playReceive } from '../lib/sounds'
 import { showMessageNotification } from '../lib/notifications'
 
-let chatWs = null
+const chatSockets = {}
+const RECONNECT_MS = 4000
+
+function sendTo(serverId, payload) {
+  const ws = chatSockets[serverId]
+  if (ws?.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload))
+    return true
+  }
+  return false
+}
+
+function handleEvent(serverId, data) {
+  const app = useApp.getState()
+  switch (data.kind) {
+    case 'presence':
+      app.setOnline(serverId, data.online)
+      break
+    case 'presence-join':
+      app.addOnline(serverId, data.user.id)
+      break
+    case 'presence-leave':
+      app.removeOnline(serverId, data.user_id)
+      break
+    case 'message':
+      if (data.message.author.id !== useAuth.getState().user?.id) {
+        playReceive()
+        showMessageNotification({
+          title: data.message.author.username,
+          body: data.message.content || 'Sent an attachment',
+          channelId: data.message.channel,
+        })
+      }
+      app.appendMessage(data.message)
+      break
+    case 'message-edited':
+      app.updateMessage(data.message)
+      break
+    case 'message-deleted':
+      app.removeMessage(data.channel_id, data.message_id)
+      break
+    case 'member-added':
+      if (String(serverId) === String(useApp.getState().activeServerId)) app.refreshMembers()
+      break
+    case 'channel-updated':
+      app.applyChannelUpdate(data.channel)
+      break
+    default:
+      break
+  }
+}
+
+function scheduleReconnect(serverId, code) {
+  if (code === 1000 || code === 4001) return
+  if (!localStorage.getItem('token')) return
+  setTimeout(() => connectChat(serverId), RECONNECT_MS)
+}
 
 export function connectChat(serverId) {
-  disconnectChat()
+  if (chatSockets[serverId]) return
   const token = localStorage.getItem('token')
+  if (!token) return
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-  chatWs = new WebSocket(`${protocol}://${location.host}/ws/chat/${serverId}/?token=${token}`)
-
-  chatWs.onmessage = (event) => {
-    const data = JSON.parse(event.data)
-    const app = useApp.getState()
-    switch (data.kind) {
-      case 'presence':
-        app.setOnline(data.online)
-        break
-      case 'presence-join':
-        app.addOnline(data.user.id)
-        break
-      case 'presence-leave':
-        app.removeOnline(data.user_id)
-        break
-      case 'message':
-        if (data.message.author.id !== useAuth.getState().user?.id) {
-          playReceive()
-          showMessageNotification({
-            title: data.message.author.username,
-            body: data.message.content || 'Sent an attachment',
-            channelId: data.message.channel,
-          })
-        }
-        app.appendMessage(data.message)
-        break
-      case 'message-edited':
-        app.updateMessage(data.message)
-        break
-      case 'message-deleted':
-        app.removeMessage(data.channel_id, data.message_id)
-        break
-      case 'member-added':
-        app.refreshMembers()
-        break
-      case 'channel-updated':
-        app.applyChannelUpdate(data.channel)
-        break
-      default:
-        break
-    }
+  const ws = new WebSocket(`${protocol}://${location.host}/ws/chat/${serverId}/?token=${token}`)
+  ws.onmessage = (event) => handleEvent(serverId, JSON.parse(event.data))
+  ws.onclose = (event) => {
+    if (chatSockets[serverId] !== ws) return
+    delete chatSockets[serverId]
+    scheduleReconnect(serverId, event.code)
   }
+  chatSockets[serverId] = ws
 }
 
 export function sendChatMessage(channelId, content) {
-  if (chatWs?.readyState === WebSocket.OPEN && channelId && content.trim()) {
-    chatWs.send(JSON.stringify({ type: 'message', channel_id: channelId, content }))
-    playSend()
-  }
+  if (!channelId || !content.trim()) return
+  const sent = sendTo(useApp.getState().activeServerId, {
+    type: 'message',
+    channel_id: channelId,
+    content,
+  })
+  if (sent) playSend()
 }
 
 export function editChatMessage(messageId, content) {
-  if (chatWs?.readyState === WebSocket.OPEN && messageId && content.trim()) {
-    chatWs.send(JSON.stringify({ type: 'edit-message', message_id: messageId, content }))
-  }
+  if (!messageId || !content.trim()) return
+  sendTo(useApp.getState().activeServerId, { type: 'edit-message', message_id: messageId, content })
 }
 
 export function deleteChatMessage(messageId) {
-  if (chatWs?.readyState === WebSocket.OPEN && messageId) {
-    chatWs.send(JSON.stringify({ type: 'delete-message', message_id: messageId }))
-  }
+  if (!messageId) return
+  sendTo(useApp.getState().activeServerId, { type: 'delete-message', message_id: messageId })
 }
 
-export function disconnectChat() {
-  if (chatWs) {
-    chatWs.onmessage = null
-    chatWs.close()
-    chatWs = null
+export function disconnectAllChat() {
+  for (const serverId of Object.keys(chatSockets)) {
+    const ws = chatSockets[serverId]
+    ws.onclose = null
+    ws.close()
+    delete chatSockets[serverId]
   }
 }

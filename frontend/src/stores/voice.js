@@ -2,11 +2,13 @@ import { create } from 'zustand'
 
 const emptyVoice = {
   inVoice: false,
+  voiceServerId: null,
   voiceChannelName: null,
   muted: false,
   deafened: false,
   sharing: false,
   participants: [],
+  serverParticipants: {},
   remoteAudios: {},
   screens: {},
   fallbackPeers: [],
@@ -18,6 +20,9 @@ export const useVoice = create((set) => ({
   reset: () => set({ ...emptyVoice }),
 
   setParticipants: (participants) => set({ participants }),
+
+  setServerParticipants: (serverId, participants) =>
+    set((s) => ({ serverParticipants: { ...s.serverParticipants, [serverId]: participants } })),
 
   setFallback: (peerId, on) =>
     set((s) => {

@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { MonitorUp, Square } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Maximize, Minimize, MonitorUp, Square } from 'lucide-react'
 import { useVoice } from '../stores/voice'
 import { useAuth } from '../stores/auth'
 import { stopScreenShare } from '../ws/rtc'
@@ -25,7 +25,7 @@ export default function VideoStage() {
           const isMine = String(id) === String(me?.id)
           return (
             <div key={id} className="relative rounded-lg overflow-hidden bg-black/60 border border-white/10 group">
-              <ScreenVideo stream={stream} muted={isMine} />
+              <ScreenVideo stream={stream} peer={id} muted={isMine} />
               <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/60 backdrop-blur px-2 py-1 rounded text-[11px] font-semibold text-white">
                 <MonitorUp className="w-3.5 h-3.5 text-[#5865f2]" />
                 {nameFor(id)}
@@ -49,20 +49,54 @@ export default function VideoStage() {
   )
 }
 
-function ScreenVideo({ stream, muted }) {
+function ScreenVideo({ stream, peer, muted }) {
   const ref = useRef(null)
+  const [fullscreen, setFullscreen] = useState(false)
 
   useEffect(() => {
-    if (ref.current) ref.current.srcObject = stream
+    if (!ref.current) return
+    if (typeof stream === 'string') {
+      ref.current.srcObject = null
+      ref.current.src = stream
+      ref.current.play().catch(() => {})
+    } else {
+      ref.current.srcObject = stream
+    }
   }, [stream])
 
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === ref.current)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  const toggleFullscreen = () => {
+    const el = ref.current
+    if (!el) return
+    if (document.fullscreenElement === el) {
+      document.exitFullscreen().catch(() => {})
+    } else {
+      el.requestFullscreen?.().catch(() => {})
+    }
+  }
+
   return (
-    <video
-      ref={ref}
-      autoPlay
-      playsInline
-      muted={muted}
-      className="w-full max-h-[45vh] object-contain bg-black"
-    />
+    <div className="relative w-full">
+      <video
+        ref={ref}
+        autoPlay
+        playsInline
+        muted={muted}
+        data-screen-peer={peer}
+        className="w-full max-h-[45vh] object-contain bg-black"
+      />
+      <button
+        onClick={toggleFullscreen}
+        title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        className="absolute top-2 right-2 p-2 rounded bg-black/60 backdrop-blur text-white/90 hover:text-white hover:bg-black/80 transition"
+      >
+        {fullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+      </button>
+    </div>
   )
 }

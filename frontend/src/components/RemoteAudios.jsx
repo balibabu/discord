@@ -8,21 +8,25 @@ export default function RemoteAudios() {
   return (
     <div className="hidden">
       {Object.entries(remoteAudios).map(([id, stream]) => (
-        <AudioNode key={id} stream={stream} muted={deafened} />
+        <AudioNode key={id} peer={id} stream={stream} muted={deafened} />
       ))}
     </div>
   )
 }
 
-function AudioNode({ stream, muted }) {
+function AudioNode({ peer, stream, muted }) {
   const ref = useRef(null)
 
   useEffect(() => {
-    if (ref.current) {
+    if (!ref.current) return
+    if (typeof stream === 'string') {
+      ref.current.srcObject = null
+      ref.current.src = stream
+    } else {
       ref.current.srcObject = stream
-      ref.current.play().catch(() => {})
     }
+    ref.current.play().catch(() => {})
   }, [stream])
 
-  return <audio ref={ref} autoPlay muted={muted} />
+  return <audio ref={ref} autoPlay data-voice-peer={peer} muted={muted} />
 }

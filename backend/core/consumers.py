@@ -219,6 +219,8 @@ class RTCConsumer(BaseServerConsumer):
             await self.handle_state_update(data)
         elif msg_type == "signal":
             await self.handle_signal(data)
+        elif msg_type == "relay-media":
+            await self.handle_relay_media(data)
 
     async def handle_join_voice(self, data):
         channel = (data.get("channel") or "").strip()
@@ -267,6 +269,28 @@ class RTCConsumer(BaseServerConsumer):
             {
                 "type": "relay.event",
                 "event": {"kind": "signal", "sender": self.user.id, "payload": payload},
+                "target": str(target),
+            },
+        )
+
+    async def handle_relay_media(self, data):
+        target = data.get("target")
+        kind = data.get("kind")
+        mime = data.get("mime") or ""
+        chunk = data.get("data")
+        if target is None or kind not in ("audio", "screen") or not chunk:
+            return
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                "type": "relay.event",
+                "event": {
+                    "kind": "media-chunk",
+                    "sender": self.user.id,
+                    "media_kind": kind,
+                    "mime": mime,
+                    "data": chunk,
+                },
                 "target": str(target),
             },
         )

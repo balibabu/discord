@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { TriangleAlert } from 'lucide-react'
 import { useAuth } from '../stores/auth'
 import { useApp } from '../stores/app'
+import { useVoice } from '../stores/voice'
 import ServerRail from './ServerRail'
 import ChannelSidebar from './ChannelSidebar'
 import ChatArea from './ChatArea'
@@ -15,6 +17,7 @@ import AddMemberModal from './modals/AddMemberModal'
 export default function AppShell() {
   const { servers, loadServers, selectServer, reset } = useApp()
   const logout = useAuth((s) => s.logout)
+  const voice = useVoice()
   const navigate = useNavigate()
   const [modal, setModal] = useState(null)
   const [leftOpen, setLeftOpen] = useState(false)
@@ -36,6 +39,9 @@ export default function AppShell() {
   }
 
   const anyDrawerOpen = leftOpen || rightOpen
+  const fallbackNames = voice.participants
+    .filter((p) => voice.fallbackPeers.includes(String(p.id)))
+    .map((p) => p.username)
 
   return (
     <div className="bg-[#313338] text-gray-200 h-screen w-screen flex overflow-hidden font-sans select-none antialiased">
@@ -67,6 +73,17 @@ export default function AppShell() {
       />
 
       <RemoteAudios />
+
+      {voice.inVoice && fallbackNames.length > 0 && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 max-w-[92vw] flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-[#1e1f22]/85 backdrop-blur-xl border border-amber-400/30 shadow-2xl">
+          <TriangleAlert className="w-4 h-4 text-amber-400 shrink-0" />
+          <span className="text-xs text-amber-100">
+            Hole punching failed with{' '}
+            <span className="font-bold text-amber-300">{fallbackNames.join(', ')}</span> — relaying
+            voice &amp; screen through the server (higher latency)
+          </span>
+        </div>
+      )}
 
       {modal === 'server' && <CreateServerModal onClose={() => setModal(null)} />}
       {modal === 'channel' && <CreateChannelModal onClose={() => setModal(null)} />}

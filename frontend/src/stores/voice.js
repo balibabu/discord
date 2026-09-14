@@ -9,6 +9,7 @@ const emptyVoice = {
   participants: [],
   remoteAudios: {},
   screens: {},
+  fallbackPeers: [],
 }
 
 export const useVoice = create((set) => ({
@@ -17,6 +18,14 @@ export const useVoice = create((set) => ({
   reset: () => set({ ...emptyVoice }),
 
   setParticipants: (participants) => set({ participants }),
+
+  setFallback: (peerId, on) =>
+    set((s) => {
+      const has = s.fallbackPeers.includes(peerId)
+      if (on && !has) return { fallbackPeers: [...s.fallbackPeers, peerId] }
+      if (!on && has) return { fallbackPeers: s.fallbackPeers.filter((id) => id !== peerId) }
+      return {}
+    }),
 
   setLocalState: (patch) => set(patch),
 

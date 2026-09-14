@@ -1,9 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { FileText, Hash, Loader2, Menu, MonitorOff, MonitorUp, Paperclip, Pencil, Send, Trash2, Users, X } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import remarkBreaks from 'remark-breaks'
-import rehypeHighlight from 'rehype-highlight'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
 import { useAuth } from '../stores/auth'
@@ -11,6 +7,8 @@ import { startScreenShare, stopScreenShare } from '../ws/rtc'
 import { formatBytes, formatTimestamp, isImageName } from '../lib/format'
 import DeleteMessageModal from './modals/DeleteMessageModal'
 import Avatar from './Avatar'
+
+const Markdown = lazy(() => import('./Markdown'))
 
 const MAX_ATTACHMENTS = 10
 
@@ -314,9 +312,9 @@ function MessageItem({ message, isMine, onDeleteRequest }) {
         ) : (
           <div className="mt-0.5">
             <div className="text-sm text-gray-200 discord-markdown break-words select-text">
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[rehypeHighlight]}>
-                {message.content}
-              </ReactMarkdown>
+              <Suspense fallback={<span className="text-gray-400">{message.content}</span>}>
+                <Markdown>{message.content}</Markdown>
+              </Suspense>
             </div>
             {message.attachment && <AttachmentView attachment={message.attachment} />}
           </div>

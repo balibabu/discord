@@ -1,10 +1,11 @@
-import { ChevronDown, Hash, Headphones, Menu, Mic, MicOff, MonitorUp, PhoneOff, Plus, Volume2, VolumeX, Activity } from 'lucide-react'
+import { ChevronDown, Hash, Headphones, Menu, Mic, MicOff, MonitorUp, PhoneOff, Plus, Volume2, VolumeX, Activity, Settings } from 'lucide-react'
 import { useAuth } from '../stores/auth'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
 import { joinVoice, leaveVoice, toggleMute, toggleDeafen } from '../ws/rtc'
+import Avatar from './Avatar'
 
-export default function ChannelSidebar({ onAddChannel, onCloseDrawer }) {
+export default function ChannelSidebar({ onAddChannel, onChannelSettings, onOpenProfile, onCloseDrawer }) {
   const { serverDetail, activeChannelId, selectChannel } = useApp()
   const user = useAuth((s) => s.user)
   const voice = useVoice()
@@ -59,10 +60,20 @@ export default function ChannelSidebar({ onAddChannel, onCloseDrawer }) {
                     selectChannel(channel.id)
                     onCloseDrawer?.()
                   }}
-                  className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm font-medium transition ${isActive ? 'bg-[#35373c] text-white' : 'text-gray-400 hover:bg-[#35373c]/60 hover:text-gray-200'}`}
+                  className={`group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm font-medium transition ${isActive ? 'bg-[#35373c] text-white' : 'text-gray-400 hover:bg-[#35373c]/60 hover:text-gray-200'}`}
                 >
                   <Hash className="w-4 h-4 text-gray-400 shrink-0" />
-                  <span className="truncate">{channel.name}</span>
+                  <span className="truncate flex-1">{channel.name}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onChannelSettings?.(channel)
+                    }}
+                    title="Channel Settings"
+                    className="opacity-0 group-hover:opacity-100 hover:opacity-100 p-0.5 text-gray-400 hover:text-white rounded transition"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               )
             })}
@@ -143,10 +154,13 @@ export default function ChannelSidebar({ onAddChannel, onCloseDrawer }) {
 
       <footer className="h-[52px] bg-[#232428] px-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2 overflow-hidden p-1 rounded hover:bg-[#313338] cursor-pointer flex-1">
-          <div className="relative shrink-0">
-            <img src={user?.avatar} alt="avatar" className="w-8 h-8 rounded-full bg-slate-700" />
-            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#232428] ${voice.inVoice ? (voice.muted ? 'bg-red-500' : 'bg-[#23a55a]') : 'bg-gray-500'}`} />
-          </div>
+          <Avatar
+            user={user}
+            statusDot={
+              <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#232428] ${voice.inVoice ? (voice.muted ? 'bg-red-500' : 'bg-[#23a55a]') : 'bg-gray-500'}`} />
+            }
+            onClick={onOpenProfile}
+          />
           <div className="leading-tight truncate">
             <div className="text-xs font-bold text-white truncate">{user?.username}</div>
             <div className="text-[10px] text-gray-400">#{user?.id}</div>

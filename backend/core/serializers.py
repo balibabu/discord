@@ -8,7 +8,38 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "avatar"]
+        fields = ["id", "username", "avatar", "avatar_style"]
+
+
+class MeSerializer(serializers.ModelSerializer):
+    avatar = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = ["id", "username", "avatar", "avatar_style"]
+
+    def validate_avatar_style(self, value):
+        value = (value or "").strip()
+        if value and value not in User.AVATAR_STYLES:
+            raise serializers.ValidationError("Unknown avatar style.")
+        return value
+
+    def update(self, instance, validated_data):
+        style = validated_data.get("avatar_style")
+        if style is not None:
+            instance.avatar_style = style
+        instance.save(update_fields=["avatar_style"])
+        return instance
+
+
+class PasswordChangeSerializer(serializers.Serializer):
+    current_password = serializers.CharField()
+    new_password = serializers.CharField(min_length=4)
+
+    def validate_current_password(self, value):
+        if not self.context["request"].user.check_password(value):
+            raise serializers.ValidationError("Current password is incorrect.")
+        return value
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -35,7 +66,25 @@ class RegisterSerializer(serializers.ModelSerializer):
 class ChannelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Channel
-        fields = ["id", "name", "type", "created_at"]
+        fields = ["id", "name", "type", "position", "created_at"]
+
+
+class ChannelUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Channel
+        fields = ["name", "position"]
+
+    def validate_name(self, value):
+        name = (value or "").strip().lower().replace(" ", "-")
+        if not name:
+            raise serializers.ValidationError("Channel name is required.")
+        return name
+
+    def validate_position(self, value):
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            raise serializers.ValidationError("Position must be a number.")
 
 
 class MembershipSerializer(serializers.ModelSerializer):

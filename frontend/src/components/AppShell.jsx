@@ -4,6 +4,7 @@ import { TriangleAlert } from 'lucide-react'
 import { useAuth } from '../stores/auth'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
+import { ensureNotificationPermission } from '../lib/notifications'
 import ServerRail from './ServerRail'
 import ChannelSidebar from './ChannelSidebar'
 import ChatArea from './ChatArea'
@@ -13,6 +14,8 @@ import RemoteAudios from './RemoteAudios'
 import CreateServerModal from './modals/CreateServerModal'
 import CreateChannelModal from './modals/CreateChannelModal'
 import AddMemberModal from './modals/AddMemberModal'
+import ChannelSettingsModal from './modals/ChannelSettingsModal'
+import ProfileSettingsModal from './modals/ProfileSettingsModal'
 
 export default function AppShell() {
   const { servers, loadServers, selectServer, reset } = useApp()
@@ -30,6 +33,7 @@ export default function AppShell() {
     loadServers().then((servers) => {
       if (servers.length > 0) selectServer(servers[0].id)
     })
+    ensureNotificationPermission()
   }, [loadServers, selectServer])
 
   const handleLogout = () => {
@@ -65,6 +69,8 @@ export default function AppShell() {
         <ServerRail onAddServer={() => setModal('server')} onLogout={handleLogout} />
         <ChannelSidebar
           onAddChannel={() => setModal('channel')}
+          onChannelSettings={(channel) => setModal({ type: 'channel-settings', channel })}
+          onOpenProfile={() => setModal('profile')}
           onCloseDrawer={() => setLeftOpen(false)}
         />
       </div>
@@ -100,6 +106,10 @@ export default function AppShell() {
       {modal === 'server' && <CreateServerModal onClose={() => setModal(null)} />}
       {modal === 'channel' && <CreateChannelModal onClose={() => setModal(null)} />}
       {modal === 'members' && <AddMemberModal onClose={() => setModal(null)} />}
+      {modal === 'profile' && <ProfileSettingsModal onClose={() => setModal(null)} />}
+      {modal?.type === 'channel-settings' && (
+        <ChannelSettingsModal channel={modal.channel} onClose={() => setModal(null)} />
+      )}
     </div>
   )
 }

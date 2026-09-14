@@ -3,9 +3,24 @@ from django.db import models
 
 
 class User(AbstractUser):
+    AVATAR_STYLES = [
+        "bottts",
+        "adventurer",
+        "avataaars",
+        "fun-emoji",
+        "lorelei",
+        "micah",
+        "pixel-art",
+        "thumbs",
+    ]
+
+    avatar_style = models.CharField(max_length=32, blank=True, default="")
+
     @property
     def avatar(self):
-        return f"https://api.dicebear.com/7.x/bottts/svg?seed={self.username}"
+        if self.avatar_style:
+            return f"https://api.dicebear.com/7.x/{self.avatar_style}/svg?seed={self.username}"
+        return ""
 
     class Meta:
         ordering = ["username"]
@@ -46,11 +61,12 @@ class Channel(models.Model):
     server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name="channels")
     name = models.CharField(max_length=100)
     type = models.CharField(max_length=5, choices=TYPE_CHOICES, default=TYPE_TEXT)
+    position = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ("server", "name")
-        ordering = ["type", "name"]
+        ordering = ["type", "position", "id"]
 
     def __str__(self):
         return f"{self.server.name}/{self.name}"

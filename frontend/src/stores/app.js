@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { api } from '../lib/api'
 import { connectChat, disconnectChat, sendChatMessage, editChatMessage, deleteChatMessage } from '../ws/chat'
 import { connectRtc, disconnectRtc, leaveVoice } from '../ws/rtc'
+import { playSend } from '../lib/sounds'
 import { useVoice } from './voice'
 
 export const useApp = create((set, get) => ({
@@ -67,7 +68,9 @@ export const useApp = create((set, get) => ({
         return api.post(`/servers/${serverId}/channels/${channelId}/upload/`, form)
       })
     )
-    return results.every((r) => r.status === 'fulfilled')
+    const ok = results.every((r) => r.status === 'fulfilled')
+    if (ok) playSend()
+    return ok
   },
 
   editMessage: (messageId, content) => {
@@ -128,6 +131,24 @@ export const useApp = create((set, get) => ({
     set({ serverDetail: data })
     const created = data.channels.find((c) => c.name === name.toLowerCase().replace(/\s+/g, '-'))
     if (created) get().selectChannel(created.id)
+  },
+
+  updateChannel: async (channelId, payload) => {
+    const serverId = get().activeServerId
+    const { data } = await api.patch(`/servers/${serverId}/channels/${channelId}/`, payload)
+    await get().refreshMembers()
+    return data
+  },
+
+  applyChannelUpdate: (channel) => {
+    set((s) => {
+      if (!s.serverDetail) return s
+      const channels = s.serverDetail.channels
+        .map((c) => (c.id === channel.id ? channel : c))
+        .slice()
+        .sort((a, b) => (a.type === b.type ? a.position - b.position || a.id - b.id : a.type.localeCompare(b.type)))
+      return { serverDetail: { ...s.serverDetail, channels } }
+    })
   },
 
   addMember: async (userId) => {

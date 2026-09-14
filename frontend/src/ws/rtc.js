@@ -1,5 +1,16 @@
 import { useAuth } from '../stores/auth'
 import { useVoice } from '../stores/voice'
+import {
+  playJoinVoice,
+  playLeaveVoice,
+  playMute,
+  playUnmute,
+  playDeafen,
+  playUndeafen,
+  playShareStart,
+  playShareStop,
+  playPeerJoin,
+} from '../lib/sounds'
 
 const RTC_CONFIG = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
@@ -204,6 +215,12 @@ async function negotiate(peerKey) {
 }
 
 function handleVoiceState(participants) {
+  const prev = useVoice.getState().participants
+  if (useVoice.getState().inVoice) {
+    const known = new Set(prev.map((p) => String(p.id)))
+    const newcomer = participants.find((p) => String(p.id) !== String(myId()) && !known.has(String(p.id)))
+    if (newcomer) playPeerJoin()
+  }
   useVoice.getState().setParticipants(participants)
   if (!useVoice.getState().inVoice) {
     teardownAllPeers()
@@ -530,6 +547,7 @@ function handleMediaChunk(data) {
 export async function joinVoice(channelName) {
   if (useVoice.getState().inVoice) return
   localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+  playJoinVoice()
   useVoice.getState().setLocalState({
     inVoice: true,
     voiceChannelName: channelName,
@@ -542,6 +560,7 @@ export async function joinVoice(channelName) {
 
 export function leaveVoice() {
   if (!useVoice.getState().inVoice) return
+  playLeaveVoice()
   send({ type: 'leave-voice' })
   teardownAllPeers()
   stopLocalTracks()
@@ -553,6 +572,8 @@ export function toggleMute() {
   if (!voice.inVoice) return
   const muted = !voice.muted
   localStream?.getAudioTracks().forEach((t) => (t.enabled = !muted))
+  if (muted) playMute()
+  else playUnmute()
   voice.setLocalState({ muted })
   send({ type: 'state-update', muted })
 }
@@ -566,6 +587,8 @@ export function toggleDeafen() {
     localStream?.getAudioTracks().forEach((t) => (t.enabled = false))
     patch.muted = true
   }
+  if (deafened) playDeafen()
+  else playUndeafen()
   voice.setLocalState(patch)
   send({ type: 'state-update', ...patch })
 }
@@ -582,6 +605,7 @@ export async function startScreenShare() {
     return
   }
   screenStream.getVideoTracks().forEach((t) => t.addEventListener('ended', stopScreenShare))
+  playShareStart()
   voice.setScreen(String(myId()), screenStream)
   voice.setLocalState({ sharing: true })
   send({ type: 'state-update', sharing: true })
@@ -600,6 +624,7 @@ export function stopScreenShare() {
   if (!screenStream) return
   screenStream.getTracks().forEach((t) => t.stop())
   screenStream = null
+  playShareStop()
   for (const peerKey of Object.keys(peers)) {
     const peer = peers[peerKey]
     peer.pc.getSenders().filter((s) => s.track?.kind === 'video').forEach((s) => peer.pc.removeTrack(s))

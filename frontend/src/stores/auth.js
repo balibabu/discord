@@ -26,6 +26,18 @@ export const useAuth = create((set) => ({
     return data.user
   },
 
+  setUser: (user) => set({ user }),
+
+  updateMe: async (payload) => {
+    const { data } = await api.patch('/auth/me/', payload)
+    set({ user: data })
+    return data
+  },
+
+  changePassword: async (currentPassword, newPassword) => {
+    await api.post('/auth/password/', { current_password: currentPassword, new_password: newPassword })
+  },
+
   logout: () => {
     localStorage.removeItem('token')
     set({ user: null })

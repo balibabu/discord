@@ -12,7 +12,10 @@ from rest_framework.views import APIView
 from .models import Channel, Membership, Message, Server, User
 from .serializers import (
     ChannelSerializer,
+    ChannelUpdateSerializer,
+    MeSerializer,
     MessageSerializer,
+    PasswordChangeSerializer,
     RegisterSerializer,
     ServerDetailSerializer,
     ServerSerializer,
@@ -49,7 +52,22 @@ class LoginView(APIView):
 
 class MeView(APIView):
     def get(self, request):
-        return Response(UserSerializer(request.user).data)
+        return Response(MeSerializer(request.user).data)
+
+    def patch(self, request):
+        serializer = MeSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(MeSerializer(request.user).data)
+
+
+class PasswordChangeView(APIView):
+    def post(self, request):
+        serializer = PasswordChangeSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        request.user.set_password(serializer.validated_data["new_password"])
+        request.user.save(update_fields=["password"])
+        return Response({"ok": True})
 
 
 class UserListView(APIView):
@@ -109,6 +127,29 @@ class ChannelCreateView(APIView):
             return Response({"error": "Channel already exists."}, status=status.HTTP_400_BAD_REQUEST)
         channel = Channel.objects.create(server=server, name=name, type=channel_type)
         return Response(ChannelSerializer(channel).data, status=status.HTTP_201_CREATED)
+
+
+class ChannelUpdateView(APIView):
+    def patch(self, request, server_id, channel_id):
+        server, membership = get_membership_or_none(request.user, server_id)
+        if membership is None:
+            return Response({"error": "Not a member of this server."}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            channel = server.channels.get(id=channel_id)
+        except Channel.DoesNotExist:
+            return Response({"error": "Channel not found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ChannelUpdateSerializer(channel, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        new_name = serializer.validated_data.get("name")
+        if new_name and new_name != channel.name:
+            if server.channels.filter(name=new_name).exclude(id=channel.id).exists():
+                return Response({"error": "Channel already exists."}, status=status.HTTP_400_BAD_REQUEST)
+        serializer.save()
+        async_to_sync(broadcast_to_server)(
+            server.id,
+            {"kind": "channel-updated", "channel": ChannelSerializer(channel).data},
+        )
+        return Response(ChannelSerializer(channel).data)
 
 
 class MessageListView(APIView):

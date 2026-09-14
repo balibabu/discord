@@ -10,6 +10,7 @@ import { useAuth } from '../stores/auth'
 import { startScreenShare, stopScreenShare } from '../ws/rtc'
 import { formatBytes, formatTimestamp, isImageName } from '../lib/format'
 import DeleteMessageModal from './modals/DeleteMessageModal'
+import Avatar from './Avatar'
 
 const MAX_ATTACHMENTS = 10
 
@@ -283,8 +284,9 @@ function MessageItem({ message, isMine, onDeleteRequest }) {
 
   return (
     <div className="group flex gap-3 hover:bg-[#2e3035] -mx-4 px-4 py-1.5 rounded transition-colors">
-      <img src={message.author.avatar} alt="avatar" className="w-10 h-10 rounded-full bg-slate-700 shrink-0 mt-0.5" />
-      <div className="flex-1 min-w-0">
+      <div className="mt-0.5">
+        <Avatar user={message.author} className="w-10 h-10" />
+      </div>      <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
           <span className={`font-semibold text-sm hover:underline cursor-pointer ${isMine ? 'text-white' : 'text-[#c9cdfb]'}`}>
             {message.author.username}

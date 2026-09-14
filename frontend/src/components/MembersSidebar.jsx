@@ -2,6 +2,7 @@ import { UserPlus, X } from 'lucide-react'
 import { useApp } from '../stores/app'
 import { useAuth } from '../stores/auth'
 import { useVoice } from '../stores/voice'
+import Avatar from './Avatar'
 
 export default function MembersSidebar({ open, onCloseDrawer, onAddMember }) {
   const { serverDetail, online } = useApp()
@@ -18,10 +19,12 @@ export default function MembersSidebar({ open, onCloseDrawer, onAddMember }) {
         key={m.id}
         className={`flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[#35373c] cursor-pointer transition ${!isOnline ? 'opacity-50 hover:opacity-100' : ''}`}
       >
-        <div className="relative shrink-0">
-          <img src={m.user.avatar} alt={m.user.username} className="w-8 h-8 rounded-full bg-slate-700" />
-          <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#2b2d31] ${isOnline ? 'bg-[#23a55a]' : 'bg-gray-500'}`} />
-        </div>
+        <Avatar
+          user={m.user}
+          statusDot={
+            <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#2b2d31] ${isOnline ? 'bg-[#23a55a]' : 'bg-gray-500'}`} />
+          }
+        />
         <div className="leading-tight truncate">
           <div className={`text-xs font-semibold truncate ${isOnline ? 'text-gray-200' : 'text-gray-400'}`}>
             {m.user.username}

@@ -3,6 +3,7 @@ import { Check, UserPlus } from 'lucide-react'
 import { api } from '../../lib/api'
 import { useApp } from '../../stores/app'
 import { ModalShell } from './CreateServerModal'
+import Avatar from '../Avatar'
 
 export default function AddMemberModal({ onClose }) {
   const { serverDetail, addMember } = useApp()
@@ -43,7 +44,7 @@ export default function AddMemberModal({ onClose }) {
           const justAdded = addedIds.includes(user.id)
           return (
             <div key={user.id} className="flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[#35373c] transition">
-              <img src={user.avatar} alt={user.username} className="w-8 h-8 rounded-full bg-slate-700 shrink-0" />
+              <Avatar user={user} />
               <div className="leading-tight truncate flex-1">
                 <div className="text-xs font-semibold text-gray-200 truncate">{user.username}</div>
                 <div className="text-[10px] text-gray-500">#{user.id}</div>

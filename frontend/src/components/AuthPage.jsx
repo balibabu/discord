@@ -33,7 +33,7 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-[#1e1f22] flex items-center justify-center p-4">
+    <div className="relative h-dvh w-screen overflow-hidden bg-[#1e1f22] flex items-center justify-center p-4">
       <div className="absolute -top-32 -left-32 w-96 h-96 bg-[#5865f2]/30 rounded-full blur-3xl" />
       <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-[#23a55a]/20 rounded-full blur-3xl" />
 

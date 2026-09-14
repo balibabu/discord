@@ -36,7 +36,7 @@ export default function VideoStage() {
               {isMine && (
                 <button
                   onClick={stopScreenShare}
-                  className="absolute bottom-2 right-2 flex items-center gap-1.5 bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold px-2.5 py-1.5 rounded transition opacity-0 group-hover:opacity-100"
+                  className="hover-reveal absolute bottom-2 right-2 flex items-center gap-1.5 bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold px-2.5 py-1.5 rounded transition"
                 >
                   <Square className="w-3 h-3" /> Stop sharing
                 </button>

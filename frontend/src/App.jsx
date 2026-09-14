@@ -12,7 +12,7 @@ export default function App() {
   }, [init])
 
   if (!ready) {
-    return <div className="h-screen w-screen bg-[#313338]" />
+    return <div className="h-dvh w-screen bg-[#313338]" />
   }
 
   return (

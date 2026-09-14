@@ -60,7 +60,7 @@ export default function AppShell() {
   }, [voice.inVoice, fallbackKey])
 
   return (
-    <div className="bg-[#313338] text-gray-200 h-screen w-screen flex overflow-hidden font-sans select-none antialiased">
+    <div className="bg-[#313338] text-gray-200 h-dvh w-screen flex overflow-hidden font-sans select-none antialiased">
       {anyDrawerOpen && (
         <div className="fixed inset-0 bg-black/60 z-30 lg:hidden" onClick={() => { setLeftOpen(false); setRightOpen(false) }} />
       )}

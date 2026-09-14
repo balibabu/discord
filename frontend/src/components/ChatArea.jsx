@@ -323,7 +323,7 @@ function MessageItem({ message, isMine, onDeleteRequest }) {
         )}
       </div>
       {isMine && !editing && (
-        <div className="flex items-start gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <div className="hover-reveal flex items-start gap-1 shrink-0">
           <button
             onClick={startEdit}
             title="Edit"

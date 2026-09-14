@@ -70,7 +70,7 @@ export default function ChannelSidebar({ onAddChannel, onChannelSettings, onOpen
                       onChannelSettings?.(channel)
                     }}
                     title="Channel Settings"
-                    className="opacity-0 group-hover:opacity-100 hover:opacity-100 p-0.5 text-gray-400 hover:text-white rounded transition"
+                    className="hover-reveal p-0.5 text-gray-400 hover:text-white rounded transition"
                   >
                     <Settings className="w-3.5 h-3.5" />
                   </button>

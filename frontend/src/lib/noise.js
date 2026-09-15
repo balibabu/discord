@@ -1,4 +1,5 @@
 import wasmUrl from '@jitsi/rnnoise-wasm/dist/rnnoise.wasm?url'
+import workletSource from '../worklets/noise-worklet.js?raw'
 import { useNoise } from '../stores/noise'
 
 let ctx = null
@@ -7,6 +8,7 @@ let srcNode = null
 let dstNode = null
 let srcStream = null
 let wasmBytes = null
+let workletUrl = null
 
 async function loadWasmBytes() {
   if (!wasmBytes) {
@@ -20,7 +22,8 @@ async function ensureGraph() {
   if (ctx) return ctx
   ctx = new AudioContext({ sampleRate: 48000 })
   if (ctx.state === 'suspended') ctx.resume().catch(() => {})
-  await ctx.audioWorklet.addModule('/noise-worklet.js')
+  workletUrl = URL.createObjectURL(new Blob([workletSource], { type: 'application/javascript' }))
+  await ctx.audioWorklet.addModule(workletUrl)
   node = new AudioWorkletNode(ctx, 'rnnoise-processor', {
     numberOfInputs: 1,
     numberOfOutputs: 1,
@@ -63,6 +66,10 @@ export function destroyNoiseGraph() {
   srcNode = null
   dstNode = null
   srcStream = null
+  if (workletUrl) {
+    URL.revokeObjectURL(workletUrl)
+    workletUrl = null
+  }
   useNoise.getState().setActive(false)
 }
 

@@ -161,14 +161,57 @@ class MessageListView(APIView):
             channel = server.channels.get(id=channel_id, type=Channel.TYPE_TEXT)
         except Channel.DoesNotExist:
             return Response({"error": "Channel not found."}, status=status.HTTP_404_NOT_FOUND)
-        messages = channel.messages.select_related("author").all()[:50]
-        return Response(MessageSerializer(list(reversed(messages)), many=True).data)
+        qs = channel.messages.select_related("author")
+        if request.query_params.get("pinned") in ("1", "true", "yes"):
+            pinned = list(qs.filter(pinned=True).all())
+            return Response(
+                {"messages": MessageSerializer(list(reversed(pinned)), many=True).data, "has_more": False}
+            )
+        before = request.query_params.get("before")
+        if before:
+            try:
+                before_id = int(before)
+            except (TypeError, ValueError):
+                return Response({"error": "Invalid before parameter."}, status=status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(id__lt=before_id)
+        after = request.query_params.get("after")
+        if after:
+            try:
+                after_id = int(after)
+            except (TypeError, ValueError):
+                return Response({"error": "Invalid after parameter."}, status=status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(id__gt=after_id)
+        messages = list(qs.all()[:100])
+        has_more = len(messages) == 100
+        return Response({"messages": MessageSerializer(list(reversed(messages)), many=True).data, "has_more": has_more})
 
 
 async def broadcast_to_server(server_id, event):
     layer = get_channel_layer()
     await layer.group_send(f"chat.{server_id}", {"type": "server.event", "event": event})
     await layer.group_send(f"rtc.{server_id}", {"type": "server.event", "event": event})
+
+
+class MessageSearchView(APIView):
+    def get(self, request, server_id):
+        server, membership = get_membership_or_none(request.user, server_id)
+        if membership is None:
+            return Response({"error": "Not a member of this server."}, status=status.HTTP_403_FORBIDDEN)
+        query = (request.query_params.get("q") or "").strip()
+        if not query:
+            return Response({"results": []})
+        channel_id = request.query_params.get("channel_id")
+        qs = Message.objects.filter(channel__server=server).select_related("author", "channel").order_by("-id")
+        if channel_id:
+            qs = qs.filter(channel_id=channel_id)
+        results = [
+            {
+                **MessageSerializer(message).data,
+                "channel_name": message.channel.name,
+            }
+            for message in qs.filter(content__icontains=query)[:50]
+        ]
+        return Response({"results": results})
 
 
 class MessageUploadView(APIView):

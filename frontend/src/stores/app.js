@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import { connectChat, sendChatMessage, editChatMessage, deleteChatMessage, disconnectAllChat } from '../ws/chat'
+import { connectChat, sendChatMessage, editChatMessage, deleteChatMessage, pinChatMessage, disconnectAllChat } from '../ws/chat'
 import { connectRtc, leaveVoice, disconnectAllRtc } from '../ws/rtc'
 import { playSend } from '../lib/sounds'
 import { useVoice } from './voice'
@@ -12,7 +12,11 @@ export const useApp = create((set, get) => ({
   serverDetail: null,
   activeChannelId: null,
   messages: {},
+  hasMore: {},
+  loadingOlder: {},
+  pinnedMessages: {},
   onlineByServer: {},
+  jumpTargetId: null,
 
   loadServers: async () => {
     const { data } = await api.get('/servers/')
@@ -40,8 +44,73 @@ export const useApp = create((set, get) => ({
     if (get().messages[channelId]) return
     const serverId = get().activeServerId
     const { data } = await api.get(`/servers/${serverId}/channels/${channelId}/messages/`)
-    set((s) => ({ messages: { ...s.messages, [channelId]: data } }))
+    set((s) => ({
+      messages: { ...s.messages, [channelId]: data.messages },
+      hasMore: { ...s.hasMore, [channelId]: data.has_more },
+    }))
+    get().loadPinnedMessages(channelId)
   },
+
+  loadPinnedMessages: async (channelId) => {
+    const serverId = get().activeServerId
+    if (!serverId) return
+    const { data } = await api.get(
+      `/servers/${serverId}/channels/${channelId}/messages/?pinned=1`
+    )
+    set((s) => ({ pinnedMessages: { ...s.pinnedMessages, [channelId]: data.messages } }))
+  },
+
+  loadOlderMessages: async (channelId) => {
+    const state = get()
+    const list = state.messages[channelId]
+    if (!list || list.length === 0 || !state.hasMore[channelId] || state.loadingOlder[channelId]) return
+    set((s) => ({ loadingOlder: { ...s.loadingOlder, [channelId]: true } }))
+    try {
+      const { data } = await api.get(
+        `/servers/${state.activeServerId}/channels/${channelId}/messages/?before=${list[0].id}`
+      )
+      set((s) => ({
+        messages: { ...s.messages, [channelId]: [...data.messages, ...s.messages[channelId]] },
+        hasMore: { ...s.hasMore, [channelId]: data.has_more },
+      }))
+    } finally {
+      set((s) => ({ loadingOlder: { ...s.loadingOlder, [channelId]: false } }))
+    }
+  },
+
+  togglePinMessage: (messageId, pinned) => {
+    pinChatMessage(messageId, pinned)
+  },
+
+  searchMessages: async (query) => {
+    const serverId = get().activeServerId
+    if (!serverId || !query.trim()) return []
+    const { data } = await api.get(`/servers/${serverId}/search/?q=${encodeURIComponent(query.trim())}`)
+    return data.results
+  },
+
+  jumpToMessage: async (channelId, messageId) => {
+    set({ activeChannelId: channelId, jumpTargetId: messageId })
+    const state = get()
+    if (state.messages[channelId]?.some((m) => m.id === messageId)) return
+    const serverId = state.activeServerId
+    const { data } = await api.get(
+      `/servers/${serverId}/channels/${channelId}/messages/?before=${Number(messageId) + 1}`
+    )
+    let list = data.messages
+    const { data: after } = await api.get(
+      `/servers/${serverId}/channels/${channelId}/messages/?after=${messageId}`
+    )
+    if (after.messages.length > 0 && !after.has_more) {
+      list = [...list, ...after.messages]
+    }
+    set((s) => ({
+      messages: { ...s.messages, [channelId]: list },
+      hasMore: { ...s.hasMore, [channelId]: data.has_more },
+    }))
+  },
+
+  clearJumpTarget: () => set({ jumpTargetId: null }),
 
   sendMessage: (content, files = []) => {
     if (files.length > 0) {
@@ -85,19 +154,37 @@ export const useApp = create((set, get) => ({
       if (existing.some((m) => m.id === message.id)) return s
       return { messages: { ...s.messages, [channelId]: [...existing, message] } }
     })
+    if (message.pinned) {
+      set((s) => ({
+        pinnedMessages: {
+          ...s.pinnedMessages,
+          [channelId]: [...(s.pinnedMessages[channelId] || []), message],
+        },
+      }))
+    }
   },
 
   updateMessage: (message) => {
     const channelId = message.channel
     set((s) => {
       const existing = s.messages[channelId]
-      if (!existing) return s
-      return {
-        messages: {
-          ...s.messages,
-          [channelId]: existing.map((m) => (m.id === message.id ? message : m)),
-        },
+      const messages = existing
+        ? { ...s.messages, [channelId]: existing.map((m) => (m.id === message.id ? message : m)) }
+        : s.messages
+      let pinnedMessages = s.pinnedMessages
+      if (message.pinned) {
+        const next = (s.pinnedMessages[channelId] || [])
+          .filter((m) => m.id !== message.id)
+          .concat(message)
+          .sort((a, b) => a.id - b.id)
+        pinnedMessages = { ...s.pinnedMessages, [channelId]: next }
+      } else if (s.pinnedMessages[channelId]?.some((m) => m.id === message.id)) {
+        pinnedMessages = {
+          ...s.pinnedMessages,
+          [channelId]: s.pinnedMessages[channelId].filter((m) => m.id !== message.id),
+        }
       }
+      return { messages, pinnedMessages }
     })
   },
 
@@ -107,6 +194,12 @@ export const useApp = create((set, get) => ({
       if (!existing) return s
       return { messages: { ...s.messages, [channelId]: existing.filter((m) => m.id !== messageId) } }
     })
+    set((s) => ({
+      pinnedMessages: {
+        ...s.pinnedMessages,
+        [channelId]: (s.pinnedMessages[channelId] || []).filter((m) => m.id !== messageId),
+      },
+    }))
   },
 
   setOnline: (serverId, userIds) =>
@@ -186,7 +279,11 @@ export const useApp = create((set, get) => ({
       serverDetail: null,
       activeChannelId: null,
       messages: {},
+      hasMore: {},
+      loadingOlder: {},
+      pinnedMessages: {},
       onlineByServer: {},
+      jumpTargetId: null,
     })
   },
 }))

@@ -79,6 +79,7 @@ class Message(models.Model):
     attachment = models.FileField(upload_to="uploads/%Y/%m/%d/", blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     edited_at = models.DateTimeField(null=True, blank=True)
+    pinned = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-created_at"]

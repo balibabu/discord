@@ -44,6 +44,9 @@ function handleEvent(serverId, data) {
     case 'message-deleted':
       app.removeMessage(data.channel_id, data.message_id)
       break
+    case 'message-pinned':
+      app.updateMessage(data.message)
+      break
     case 'member-added':
       if (String(serverId) === String(useApp.getState().activeServerId)) app.refreshMembers()
       break
@@ -94,6 +97,11 @@ export function editChatMessage(messageId, content) {
 export function deleteChatMessage(messageId) {
   if (!messageId) return
   sendTo(useApp.getState().activeServerId, { type: 'delete-message', message_id: messageId })
+}
+
+export function pinChatMessage(messageId, pinned) {
+  if (!messageId) return
+  sendTo(useApp.getState().activeServerId, { type: 'pin-message', message_id: messageId, pinned })
 }
 
 export function disconnectAllChat() {

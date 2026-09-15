@@ -40,6 +40,7 @@ urlpatterns = [
         "api/servers/<int:server_id>/channels/<int:channel_id>/messages/",
         views.MessageListView.as_view(),
     ),
+    path("api/servers/<int:server_id>/search/", views.MessageSearchView.as_view()),
     path(
         "api/servers/<int:server_id>/channels/<int:channel_id>/upload/",
         views.MessageUploadView.as_view(),

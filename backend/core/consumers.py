@@ -97,6 +97,8 @@ class ChatConsumer(BaseServerConsumer):
             await self.handle_edit_message(data)
         elif msg_type == "delete-message":
             await self.handle_delete_message(data)
+        elif msg_type == "pin-message":
+            await self.handle_pin_message(data)
 
     @database_sync_to_async
     def save_message(self, channel_id, content):
@@ -167,6 +169,28 @@ class ChatConsumer(BaseServerConsumer):
         await self.group_send_event(
             {"kind": "message-deleted", "channel_id": channel_id, "message_id": message_id}
         )
+
+    @database_sync_to_async
+    def pin_message_db(self, message_id, pinned):
+        try:
+            message = Message.objects.select_related("author", "channel").get(
+                id=message_id, channel__server_id=self.server_id
+            )
+        except (Message.DoesNotExist, ValueError, TypeError):
+            return None
+        message.pinned = pinned
+        message.save(update_fields=["pinned"])
+        return MessageSerializer(message).data
+
+    async def handle_pin_message(self, data):
+        message_id = data.get("message_id")
+        pinned = bool(data.get("pinned"))
+        if message_id is None:
+            return
+        message = await self.pin_message_db(message_id, pinned)
+        if message is None:
+            return
+        await self.group_send_event({"kind": "message-pinned", "message": message})
 
 
 class RTCConsumer(BaseServerConsumer):

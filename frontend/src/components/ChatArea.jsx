@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { FileText, Hash, Loader2, Menu, MonitorOff, MonitorUp, Paperclip, Pencil, Send, Trash2, Users, X } from 'lucide-react'
+import { ChevronUp, FileText, Hash, Loader2, Menu, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Search, Send, Trash2, Users, X } from 'lucide-react'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
 import { useAuth } from '../stores/auth'
@@ -13,24 +13,105 @@ const Markdown = lazy(() => import('./Markdown'))
 const MAX_ATTACHMENTS = 10
 
 export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
-  const { serverDetail, activeChannelId, messages, sendMessage, deleteMessage } = useApp()
+  const { serverDetail, activeChannelId, messages, hasMore, loadingOlder, pinnedMessages, sendMessage, deleteMessage, loadOlderMessages, togglePinMessage, searchMessages, jumpToMessage, jumpTargetId, clearJumpTarget } = useApp()
   const voice = useVoice()
   const me = useAuth((s) => s.user)
   const [deleting, setDeleting] = useState(null)
 
   const channel = serverDetail?.channels.find((c) => c.id === activeChannelId)
   const channelMessages = messages[activeChannelId] || []
+  const channelHasMore = !!hasMore[activeChannelId]
+  const channelLoadingOlder = !!loadingOlder[activeChannelId]
+  const channelPinned = pinnedMessages[activeChannelId] || []
   const inputRef = useRef(null)
   const scrollRef = useRef(null)
   const fileInputRef = useRef(null)
   const [attachments, setAttachments] = useState([])
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [pinnedOpen, setPinnedOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searching, setSearching] = useState(false)
+  const searchTimer = useRef(null)
+  const scrollAnchor = useRef({ channel: null, firstId: null })
+  const pendingScrollRestore = useRef(null)
+  const jumpHighlighted = useRef(null)
+
+  const firstMessageId = channelMessages[0]?.id ?? null
+  const jumpTargetPresent = jumpTargetId != null && channelMessages.some((m) => m.id === jumpTargetId)
 
   useEffect(() => {
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [channelMessages.length, activeChannelId])
+    if (!el) return
+    const anchor = scrollAnchor.current
+    const prepended = anchor.channel === activeChannelId && anchor.firstId !== null && firstMessageId !== anchor.firstId
+    scrollAnchor.current = { channel: activeChannelId, firstId: firstMessageId }
+    if (jumpTargetId && jumpTargetPresent) {
+      if (jumpHighlighted.current !== jumpTargetId) {
+        jumpHighlighted.current = jumpTargetId
+        const target = el.querySelector(`[data-message-id="${jumpTargetId}"]`)
+        if (target) target.scrollIntoView({ block: 'center' })
+      }
+      return
+    }
+    jumpHighlighted.current = null
+    if (prepended) {
+      if (pendingScrollRestore.current !== null) {
+        el.scrollTop = el.scrollHeight - pendingScrollRestore.current
+        pendingScrollRestore.current = null
+      }
+    } else {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [channelMessages.length, activeChannelId, jumpTargetId, firstMessageId, jumpTargetPresent])
+
+  useEffect(() => {
+    if (jumpTargetId && channelMessages.some((m) => m.id === jumpTargetId)) {
+      const timer = setTimeout(() => clearJumpTarget(), 2500)
+      return () => clearTimeout(timer)
+    }
+  }, [jumpTargetId, channelMessages])
+
+  useEffect(() => {
+    return () => clearTimeout(searchTimer.current)
+  }, [])
+
+  const runSearch = (value) => {
+    clearTimeout(searchTimer.current)
+    const q = value.trim()
+    if (!q) {
+      setSearchResults(null)
+      setSearching(false)
+      return
+    }
+    setSearching(true)
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const results = await searchMessages(q)
+        setSearchResults(results)
+      } finally {
+        setSearching(false)
+      }
+    }, 300)
+  }
+
+  const handleSearchChange = (e) => {
+    setSearchQuery(e.target.value)
+    runSearch(e.target.value)
+  }
+
+  const handleJump = async (result) => {
+    setSearchOpen(false)
+    await jumpToMessage(result.channel, result.id)
+  }
+
+  const handleLoadOlder = async () => {
+    const el = scrollRef.current
+    if (el) pendingScrollRestore.current = el.scrollHeight
+    await loadOlderMessages(activeChannelId)
+  }
 
   const addFiles = (files) => {
     const incoming = Array.from(files || []).filter((f) => f instanceof File)
@@ -146,6 +227,13 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
         </div>
 
         <div className="flex items-center gap-2 text-gray-300">
+          <button
+            onClick={() => setSearchOpen(!searchOpen)}
+            title="Search messages"
+            className={`p-1.5 rounded transition hover:bg-[#2b2d31] ${searchOpen ? 'text-white bg-[#2b2d31]' : 'hover:text-white'}`}
+          >
+            <Search className="w-5 h-5" />
+          </button>
           {voice.inVoice && (
             <button
               onClick={voice.sharing ? stopScreenShare : startScreenShare}
@@ -166,7 +254,96 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
         </div>
       </header>
 
+      {searchOpen && (
+        <div className="border-b border-[#1f2023] bg-[#2b2d31]/60 shrink-0 px-4 py-2.5 space-y-2">
+          <div className="flex items-center gap-2 bg-[#383a40] rounded-lg px-3 py-1.5">
+            <Search className="w-4 h-4 text-gray-400 shrink-0" />
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={handleSearchChange}
+              placeholder={`Search in ${serverDetail?.name || 'server'}...`}
+              className="bg-transparent flex-1 text-sm text-gray-100 placeholder-gray-500 focus:outline-none"
+            />
+            {searching && <Loader2 className="w-4 h-4 text-gray-400 animate-spin shrink-0" />}
+          </div>
+          {searchResults && !searching && (
+            <div className="max-h-64 overflow-y-auto space-y-1">
+              {searchResults.length === 0 ? (
+                <div className="text-xs text-gray-400 px-1 py-2">No results for "{searchQuery}"</div>
+              ) : (
+                searchResults.map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => handleJump(r)}
+                    className="w-full flex items-start gap-2.5 text-left bg-[#313338] hover:bg-[#35373c] rounded-md px-2.5 py-2 transition"
+                  >
+                    <Avatar user={r.author} className="w-7 h-7 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs font-semibold text-[#c9cdfb] truncate">{r.author.username}</span>
+                        <span className="text-[10px] text-gray-500 shrink-0">#{r.channel_name}</span>
+                        <span className="text-[10px] text-gray-500 shrink-0">{formatTimestamp(r.created_at)}</span>
+                      </div>
+                      <div className="text-xs text-gray-300 line-clamp-2 break-words select-text">{r.content}</div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {channelPinned.length > 0 && (
+        <div className="border-b border-[#1f2023] bg-[#2b2d31]/60 shrink-0">
+          <button
+            onClick={() => setPinnedOpen(!pinnedOpen)}
+            className="w-full flex items-center gap-2 px-4 py-1.5 text-xs text-gray-300 hover:text-white transition"
+          >
+            <Pin className="w-3.5 h-3.5 text-gray-400" />
+            <span className="font-semibold">{channelPinned.length} Pinned message{channelPinned.length > 1 ? 's' : ''}</span>
+            <ChevronUp className={`w-3.5 h-3.5 ml-auto transition-transform ${pinnedOpen ? '' : 'rotate-180'}`} />
+          </button>
+          {pinnedOpen && (
+            <div className="max-h-48 overflow-y-auto px-4 pb-2 space-y-1.5">
+              {channelPinned.map((m) => (
+                <div key={m.id} className="flex items-start gap-2 bg-[#313338] rounded-md px-2.5 py-1.5">
+                  <Avatar user={m.author} className="w-6 h-6 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-xs font-semibold text-[#c9cdfb] truncate">{m.author.username}</span>
+                      <span className="text-[10px] text-gray-500 shrink-0">{formatTimestamp(m.created_at)}</span>
+                    </div>
+                    <div className="text-xs text-gray-300 line-clamp-2 break-words select-text">{m.content || (m.attachment ? '📎 Attachment' : '')}</div>
+                  </div>
+                  <button
+                    onClick={() => togglePinMessage(m.id, false)}
+                    title="Unpin"
+                    className="p-1 rounded text-gray-400 hover:text-red-400 transition shrink-0"
+                  >
+                    <PinOff className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+        {channelHasMore && channelMessages.length > 0 && (
+          <div className="flex justify-center">
+            <button
+              onClick={handleLoadOlder}
+              disabled={channelLoadingOlder}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-[#2b2d31] text-gray-300 hover:bg-[#5865f2] hover:text-white disabled:opacity-50 transition"
+            >
+              {channelLoadingOlder ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronUp className="w-3.5 h-3.5" />}
+              Load older messages
+            </button>
+          </div>
+        )}
         {channelMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 space-y-2">
             <div className="w-16 h-16 rounded-full bg-[#2b2d31] flex items-center justify-center text-gray-500">
@@ -177,7 +354,13 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
           </div>
         ) : (
           channelMessages.map((message) => (
-            <MessageItem key={message.id} message={message} isMine={message.author.id === me?.id} onDeleteRequest={setDeleting} />
+            <MessageItem
+              key={message.id}
+              message={message}
+              isMine={message.author.id === me?.id}
+              onDeleteRequest={setDeleting}
+              isJumpTarget={message.id === jumpTargetId}
+            />
           ))
         )}
       </div>
@@ -234,8 +417,8 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   )
 }
 
-function MessageItem({ message, isMine, onDeleteRequest }) {
-  const { editMessage } = useApp()
+function MessageItem({ message, isMine, onDeleteRequest, isJumpTarget }) {
+  const { editMessage, togglePinMessage } = useApp()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.content)
   const editRef = useRef(null)
@@ -281,7 +464,10 @@ function MessageItem({ message, isMine, onDeleteRequest }) {
   }
 
   return (
-    <div className="group flex gap-3 hover:bg-[#2e3035] -mx-4 px-4 py-1.5 rounded transition-colors">
+    <div
+      data-message-id={message.id}
+      className={`group flex gap-3 -mx-4 px-4 py-1.5 rounded transition-colors ${isJumpTarget ? 'bg-[#5865f2]/15 ring-1 ring-[#5865f2]/40' : 'hover:bg-[#2e3035]'}`}
+    >
       <div className="mt-0.5">
         <Avatar user={message.author} className="w-10 h-10" />
       </div>      <div className="flex-1 min-w-0">
@@ -320,22 +506,33 @@ function MessageItem({ message, isMine, onDeleteRequest }) {
           </div>
         )}
       </div>
-      {isMine && !editing && (
-        <div className="hover-reveal flex items-start gap-1 shrink-0">
+      {!editing && (
+        <div className={`hover-reveal flex items-start gap-1 shrink-0 ${message.pinned ? 'opacity-100' : ''}`}>
           <button
-            onClick={startEdit}
-            title="Edit"
-            className="p-1.5 rounded bg-[#2b2d31] hover:bg-[#5865f2] text-gray-300 hover:text-white transition"
+            onClick={() => togglePinMessage(message.id, !message.pinned)}
+            title={message.pinned ? 'Unpin' : 'Pin'}
+            className={`p-1.5 rounded bg-[#2b2d31] transition ${message.pinned ? 'text-[#f0b232] hover:bg-[#3a2f16]' : 'text-gray-300 hover:bg-[#5865f2] hover:text-white'}`}
           >
-            <Pencil className="w-4 h-4" />
+            {message.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
           </button>
-          <button
-            onClick={() => onDeleteRequest(message)}
-            title="Delete"
-            className="p-1.5 rounded bg-[#2b2d31] hover:bg-red-500 text-gray-300 hover:text-white transition"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+          {isMine && (
+            <>
+              <button
+                onClick={startEdit}
+                title="Edit"
+                className="p-1.5 rounded bg-[#2b2d31] hover:bg-[#5865f2] text-gray-300 hover:text-white transition"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => onDeleteRequest(message)}
+                title="Delete"
+                className="p-1.5 rounded bg-[#2b2d31] hover:bg-red-500 text-gray-300 hover:text-white transition"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

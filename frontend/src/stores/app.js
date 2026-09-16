@@ -112,16 +112,16 @@ export const useApp = create((set, get) => ({
 
   clearJumpTarget: () => set({ jumpTargetId: null }),
 
-  sendMessage: (content, files = []) => {
+  sendMessage: (content, files = [], replyToId = null) => {
     if (files.length > 0) {
-      return get().sendFiles(files, content)
+      return get().sendFiles(files, content, replyToId)
     }
     if (content.trim()) {
-      sendChatMessage(get().activeChannelId, content)
+      sendChatMessage(get().activeChannelId, content, replyToId)
     }
   },
 
-  sendFiles: async (files, content = '') => {
+  sendFiles: async (files, content = '', replyToId = null) => {
     const serverId = get().activeServerId
     const channelId = get().activeChannelId
     if (!serverId || !channelId) return false
@@ -130,6 +130,7 @@ export const useApp = create((set, get) => ({
         const form = new FormData()
         form.append('file', file)
         form.append('content', index === 0 ? content : '')
+        if (index === 0 && replyToId) form.append('reply_to', replyToId)
         return api.post(`/servers/${serverId}/channels/${channelId}/upload/`, form)
       })
     )
@@ -192,7 +193,17 @@ export const useApp = create((set, get) => ({
     set((s) => {
       const existing = s.messages[channelId]
       if (!existing) return s
-      return { messages: { ...s.messages, [channelId]: existing.filter((m) => m.id !== messageId) } }
+      const messages = {
+        ...s.messages,
+        [channelId]: existing
+          .filter((m) => m.id !== messageId)
+          .map((m) =>
+            m.reply_to && m.reply_to.id === messageId
+              ? { ...m, reply_to: { ...m.reply_to, deleted: true } }
+              : m
+          ),
+      }
+      return { messages }
     })
     set((s) => ({
       pinnedMessages: {

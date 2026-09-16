@@ -127,13 +127,22 @@ class ServerDetailSerializer(ServerSerializer):
         ]
 
 
-class MessageSerializer(serializers.ModelSerializer):
+class ReplyToSerializer(serializers.ModelSerializer):
     author = UserSerializer(read_only=True)
-    attachment = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
-        fields = ["id", "channel", "author", "content", "attachment", "created_at", "edited_at", "pinned"]
+        fields = ["id", "author", "content"]
+
+
+class MessageSerializer(serializers.ModelSerializer):
+    author = UserSerializer(read_only=True)
+    attachment = serializers.SerializerMethodField()
+    reply_to = ReplyToSerializer(read_only=True)
+
+    class Meta:
+        model = Message
+        fields = ["id", "channel", "author", "content", "attachment", "reply_to", "created_at", "edited_at", "pinned"]
 
     def get_attachment(self, obj):
         if not obj.attachment:

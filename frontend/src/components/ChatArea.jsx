@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { ChevronUp, FileText, Hash, Loader2, Menu, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Search, Send, Trash2, Users, X } from 'lucide-react'
+import { ChevronUp, CornerUpLeft, FileText, Hash, Loader2, Menu, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Trash2, Users, X } from 'lucide-react'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
 import { useAuth } from '../stores/auth'
@@ -17,6 +17,7 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   const voice = useVoice()
   const me = useAuth((s) => s.user)
   const [deleting, setDeleting] = useState(null)
+  const [replyTo, setReplyTo] = useState(null)
 
   const channel = serverDetail?.channels.find((c) => c.id === activeChannelId)
   const channelMessages = messages[activeChannelId] || []
@@ -35,12 +36,39 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   const [searchResults, setSearchResults] = useState(null)
   const [searching, setSearching] = useState(false)
   const searchTimer = useRef(null)
+  const contentRef = useRef(null)
+  const atBottomRef = useRef(true)
   const scrollAnchor = useRef({ channel: null, firstId: null })
   const pendingScrollRestore = useRef(null)
   const jumpHighlighted = useRef(null)
 
   const firstMessageId = channelMessages[0]?.id ?? null
+  const hasMessages = channelMessages.length > 0
   const jumpTargetPresent = jumpTargetId != null && channelMessages.some((m) => m.id === jumpTargetId)
+
+  const [replyChannel, setReplyChannel] = useState(activeChannelId)
+  if (activeChannelId !== replyChannel) {
+    setReplyChannel(activeChannelId)
+    setReplyTo(null)
+  }
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    atBottomRef.current = true
+    el.scrollTop = el.scrollHeight
+  }, [activeChannelId])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    const content = contentRef.current
+    if (!el || !content || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (atBottomRef.current) el.scrollTop = el.scrollHeight
+    })
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [hasMessages])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -52,20 +80,22 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
       if (jumpHighlighted.current !== jumpTargetId) {
         jumpHighlighted.current = jumpTargetId
         const target = el.querySelector(`[data-message-id="${jumpTargetId}"]`)
-        if (target) target.scrollIntoView({ block: 'center' })
+        if (target) target.scrollIntoView({ block: 'center', behavior: 'instant' })
       }
       return
     }
     jumpHighlighted.current = null
-    if (prepended) {
-      if (pendingScrollRestore.current !== null) {
-        el.scrollTop = el.scrollHeight - pendingScrollRestore.current
-        pendingScrollRestore.current = null
-      }
-    } else {
-      el.scrollTop = el.scrollHeight
+    if (prepended && pendingScrollRestore.current !== null) {
+      el.scrollTop = el.scrollHeight - pendingScrollRestore.current
+      pendingScrollRestore.current = null
     }
   }, [channelMessages.length, activeChannelId, jumpTargetId, firstMessageId, jumpTargetPresent])
+
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+  }
 
   useEffect(() => {
     if (jumpTargetId && channelMessages.some((m) => m.id === jumpTargetId)) {
@@ -180,6 +210,9 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       submit()
+    } else if (e.key === 'Escape' && replyTo) {
+      e.preventDefault()
+      setReplyTo(null)
     }
   }
 
@@ -194,11 +227,12 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
     if (uploading || (!text && attachments.length === 0)) return
     setUploading(true)
     try {
-      const ok = await sendMessage(text, attachments.map((a) => a.file))
+      const ok = await sendMessage(text, attachments.map((a) => a.file), replyTo?.id ?? null)
       if (ok === false) return
       clearAttachments(attachments)
       input.value = ''
       input.style.height = 'auto'
+      setReplyTo(null)
     } finally {
       setUploading(false)
     }
@@ -331,19 +365,7 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-        {channelHasMore && channelMessages.length > 0 && (
-          <div className="flex justify-center">
-            <button
-              onClick={handleLoadOlder}
-              disabled={channelLoadingOlder}
-              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-[#2b2d31] text-gray-300 hover:bg-[#5865f2] hover:text-white disabled:opacity-50 transition"
-            >
-              {channelLoadingOlder ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronUp className="w-3.5 h-3.5" />}
-              Load older messages
-            </button>
-          </div>
-        )}
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4">
         {channelMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 space-y-2">
             <div className="w-16 h-16 rounded-full bg-[#2b2d31] flex items-center justify-center text-gray-500">
@@ -353,15 +375,33 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
             <p className="text-xs max-w-xs">This is the start of the #{channel?.name || 'channel'} channel.</p>
           </div>
         ) : (
-          channelMessages.map((message) => (
-            <MessageItem
-              key={message.id}
-              message={message}
-              isMine={message.author.id === me?.id}
-              onDeleteRequest={setDeleting}
-              isJumpTarget={message.id === jumpTargetId}
-            />
-          ))
+          <div ref={contentRef} className="space-y-4">
+            {channelHasMore && (
+              <div className="flex justify-center">
+                <button
+                  onClick={handleLoadOlder}
+                  disabled={channelLoadingOlder}
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-[#2b2d31] text-gray-300 hover:bg-[#5865f2] hover:text-white disabled:opacity-50 transition"
+                >
+                  {channelLoadingOlder ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronUp className="w-3.5 h-3.5" />}
+                  Load older messages
+                </button>
+              </div>
+            )}
+            {channelMessages.map((message) => (
+              <MessageItem
+                key={message.id}
+                message={message}
+                isMine={message.author.id === me?.id}
+                onDeleteRequest={setDeleting}
+                onReplyRequest={(m) => {
+                  setReplyTo(m)
+                  inputRef.current?.focus()
+                }}
+                isJumpTarget={message.id === jumpTargetId}
+              />
+            ))}
+          </div>
         )}
       </div>
 
@@ -375,6 +415,23 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
 
       <div className="p-4 pt-1 shrink-0">
         <div className="bg-[#383a40] rounded-lg px-3 py-2 focus-within:ring-1 focus-within:ring-white/20">
+          {replyTo && (
+            <div className="flex items-center gap-2 pb-2 mb-2 border-b border-black/20 text-xs min-w-0">
+              <Reply className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <span className="text-gray-500 shrink-0">Replying to</span>
+              <Avatar user={replyTo.author} className="w-4 h-4 shrink-0" />
+              <span className="font-semibold text-[#c9cdfb] shrink-0 truncate">{replyTo.author.username}</span>
+              <span className="text-gray-400 truncate flex-1 min-w-0">{replyTo.content || 'Attachment'}</span>
+              <button
+                onClick={() => setReplyTo(null)}
+                type="button"
+                title="Cancel reply"
+                className="p-1 rounded text-gray-400 hover:text-white hover:bg-black/20 transition shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 pb-2 mb-2 border-b border-black/20">
               {attachments.map((item) => (
@@ -417,11 +474,17 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   )
 }
 
-function MessageItem({ message, isMine, onDeleteRequest, isJumpTarget }) {
-  const { editMessage, togglePinMessage } = useApp()
+function MessageItem({ message, isMine, onDeleteRequest, onReplyRequest, isJumpTarget }) {
+  const { editMessage, togglePinMessage, jumpToMessage } = useApp()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.content)
   const editRef = useRef(null)
+  const reply = message.reply_to
+
+  const jumpToReply = () => {
+    if (!reply || reply.deleted) return
+    jumpToMessage(message.channel, reply.id)
+  }
 
   const attachEditRef = (el) => {
     editRef.current = el
@@ -471,6 +534,24 @@ function MessageItem({ message, isMine, onDeleteRequest, isJumpTarget }) {
       <div className="mt-0.5">
         <Avatar user={message.author} className="w-10 h-10" />
       </div>      <div className="flex-1 min-w-0">
+        {reply && !editing && (
+          <div className="flex items-center gap-1.5 text-xs min-w-0">
+            <CornerUpLeft className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            {reply.deleted ? (
+              <span className="italic text-gray-500 truncate">Original message was deleted</span>
+            ) : (
+              <button
+                onClick={jumpToReply}
+                title="Jump to original message"
+                className="flex items-center gap-1.5 min-w-0 text-left"
+              >
+                <Avatar user={reply.author} className="w-4 h-4 shrink-0" />
+                <span className="font-semibold text-[#c9cdfb] shrink-0 hover:underline">{reply.author.username}</span>
+                <span className="text-gray-400 truncate min-w-0 hover:text-gray-200">{reply.content || 'Attachment'}</span>
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex items-baseline gap-2">
           <span className={`font-semibold text-sm hover:underline cursor-pointer ${isMine ? 'text-white' : 'text-[#c9cdfb]'}`}>
             {message.author.username}
@@ -508,6 +589,13 @@ function MessageItem({ message, isMine, onDeleteRequest, isJumpTarget }) {
       </div>
       {!editing && (
         <div className={`hover-reveal flex items-start gap-1 shrink-0 ${message.pinned ? 'opacity-100' : ''}`}>
+          <button
+            onClick={() => onReplyRequest(message)}
+            title="Reply"
+            className="p-1.5 rounded bg-[#2b2d31] hover:bg-[#5865f2] text-gray-300 hover:text-white transition"
+          >
+            <Reply className="w-4 h-4" />
+          </button>
           <button
             onClick={() => togglePinMessage(message.id, !message.pinned)}
             title={message.pinned ? 'Unpin' : 'Pin'}
@@ -570,12 +658,17 @@ function PendingAttachment({ item, onRemove }) {
 function AttachmentView({ attachment }) {
   if (isImageName(attachment.name)) {
     return (
-      <a href={attachment.url} target="_blank" rel="noreferrer" className="mt-1 block w-fit">
+      <a
+        href={attachment.url}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-1 block w-80 max-w-full h-60 rounded-lg overflow-hidden border border-black/20 bg-[#2b2d31]"
+      >
         <img
           src={attachment.url}
           alt={attachment.name}
           loading="lazy"
-          className="rounded-lg max-h-80 max-w-full object-contain border border-black/20"
+          className="w-full h-full object-contain"
         />
       </a>
     )

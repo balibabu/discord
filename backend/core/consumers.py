@@ -101,15 +101,24 @@ class ChatConsumer(BaseServerConsumer):
             await self.handle_pin_message(data)
 
     @database_sync_to_async
-    def save_message(self, channel_id, content):
+    def save_message(self, channel_id, content, reply_to_id=None):
         try:
             channel = Channel.objects.select_related("server").get(
                 id=channel_id, server_id=self.server_id, type=Channel.TYPE_TEXT
             )
         except (Channel.DoesNotExist, ValueError, TypeError):
             return None
-        message = Message.objects.create(channel=channel, author=self.user, content=content)
-        message.channel_id = channel_id
+        reply_to = None
+        if reply_to_id is not None:
+            try:
+                reply_to = Message.objects.select_related("author").get(
+                    id=reply_to_id, channel_id=channel.id
+                )
+            except (Message.DoesNotExist, ValueError, TypeError):
+                return None
+        message = Message.objects.create(
+            channel=channel, author=self.user, content=content, reply_to=reply_to
+        )
         return MessageSerializer(message).data
 
     async def handle_message(self, data):
@@ -117,7 +126,7 @@ class ChatConsumer(BaseServerConsumer):
         channel_id = data.get("channel_id")
         if not content or channel_id is None:
             return
-        message = await self.save_message(channel_id, content)
+        message = await self.save_message(channel_id, content, data.get("reply_to_id"))
         if message is None:
             return
         await self.group_send_event({"kind": "message", "message": message})
@@ -125,7 +134,7 @@ class ChatConsumer(BaseServerConsumer):
     @database_sync_to_async
     def edit_message_db(self, message_id, content):
         try:
-            message = Message.objects.select_related("author").get(
+            message = Message.objects.select_related("author", "reply_to__author").get(
                 id=message_id, channel__server_id=self.server_id, author_id=self.user.id
             )
         except (Message.DoesNotExist, ValueError, TypeError):
@@ -173,7 +182,7 @@ class ChatConsumer(BaseServerConsumer):
     @database_sync_to_async
     def pin_message_db(self, message_id, pinned):
         try:
-            message = Message.objects.select_related("author", "channel").get(
+            message = Message.objects.select_related("author", "channel", "reply_to__author").get(
                 id=message_id, channel__server_id=self.server_id
             )
         except (Message.DoesNotExist, ValueError, TypeError):

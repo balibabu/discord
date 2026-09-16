@@ -77,6 +77,9 @@ class Message(models.Model):
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="messages")
     content = models.TextField()
     attachment = models.FileField(upload_to="uploads/%Y/%m/%d/", blank=True, null=True)
+    reply_to = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="replies"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     edited_at = models.DateTimeField(null=True, blank=True)
     pinned = models.BooleanField(default=False)

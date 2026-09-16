@@ -79,13 +79,15 @@ export function connectChat(serverId) {
   chatSockets[serverId] = ws
 }
 
-export function sendChatMessage(channelId, content) {
+export function sendChatMessage(channelId, content, replyToId = null) {
   if (!channelId || !content.trim()) return
-  const sent = sendTo(useApp.getState().activeServerId, {
+  const payload = {
     type: 'message',
     channel_id: channelId,
     content,
-  })
+  }
+  if (replyToId) payload.reply_to_id = replyToId
+  const sent = sendTo(useApp.getState().activeServerId, payload)
   if (sent) playSend()
 }
 

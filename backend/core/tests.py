@@ -78,6 +78,98 @@ class MessageEditDeleteTests(TransactionTestCase):
         await other_comm.disconnect()
 
 
+class MessageReplyTests(TransactionTestCase):
+    async def _connect(self, server, user):
+        token = await database_sync_to_async(lambda: Token.objects.create(user=user).key)()
+        comm = WebsocketCommunicator(application, f"/ws/chat/{server.id}/?token={token}")
+        await comm.connect()
+        await drain_events(comm)
+        return comm
+
+    async def test_send_reply_includes_nested_target(self):
+        owner = await database_sync_to_async(User.objects.create_user)(username="replier", password="pass1234")
+        server = await database_sync_to_async(Server.objects.create)(name="srv", owner=owner)
+        await database_sync_to_async(Membership.objects.create)(server=server, user=owner, role=Membership.ROLE_OWNER)
+        channel = await database_sync_to_async(Channel.objects.create)(server=server, name="general", type=Channel.TYPE_TEXT)
+        original = await database_sync_to_async(Message.objects.create)(
+            channel=channel, author=owner, content="original"
+        )
+        comm = await self._connect(server, owner)
+
+        await comm.send_json_to(
+            {"type": "message", "channel_id": channel.id, "content": "a reply", "reply_to_id": original.id}
+        )
+        event = await comm.receive_json_from()
+        self.assertEqual(event["kind"], "message")
+        self.assertEqual(event["message"]["content"], "a reply")
+        self.assertEqual(event["message"]["reply_to"]["id"], original.id)
+        self.assertEqual(event["message"]["reply_to"]["author"]["username"], "replier")
+        self.assertEqual(event["message"]["reply_to"]["content"], "original")
+
+        reply = await database_sync_to_async(Message.objects.get)(content="a reply")
+        self.assertEqual(reply.reply_to_id, original.id)
+        await comm.disconnect()
+
+    async def test_reply_with_invalid_target_is_ignored(self):
+        owner = await database_sync_to_async(User.objects.create_user)(username="badreply", password="pass1234")
+        server = await database_sync_to_async(Server.objects.create)(name="srv", owner=owner)
+        await database_sync_to_async(Membership.objects.create)(server=server, user=owner, role=Membership.ROLE_OWNER)
+        channel = await database_sync_to_async(Channel.objects.create)(server=server, name="general", type=Channel.TYPE_TEXT)
+        comm = await self._connect(server, owner)
+
+        await comm.send_json_to(
+            {"type": "message", "channel_id": channel.id, "content": "orphan", "reply_to_id": 999999}
+        )
+        self.assertTrue(await comm.receive_nothing(timeout=0.3))
+        self.assertFalse(
+            await database_sync_to_async(lambda: Message.objects.filter(content="orphan").exists())()
+        )
+        await comm.disconnect()
+
+    async def test_reply_target_from_other_channel_is_rejected(self):
+        owner = await database_sync_to_async(User.objects.create_user)(username="crossreply", password="pass1234")
+        server = await database_sync_to_async(Server.objects.create)(name="srv", owner=owner)
+        await database_sync_to_async(Membership.objects.create)(server=server, user=owner, role=Membership.ROLE_OWNER)
+        source = await database_sync_to_async(Channel.objects.create)(server=server, name="general", type=Channel.TYPE_TEXT)
+        other = await database_sync_to_async(Channel.objects.create)(server=server, name="random", type=Channel.TYPE_TEXT)
+        original = await database_sync_to_async(Message.objects.create)(
+            channel=other, author=owner, content="other channel"
+        )
+        comm = await self._connect(server, owner)
+
+        await comm.send_json_to(
+            {"type": "message", "channel_id": source.id, "content": "cross reply", "reply_to_id": original.id}
+        )
+        self.assertTrue(await comm.receive_nothing(timeout=0.3))
+        self.assertFalse(
+            await database_sync_to_async(lambda: Message.objects.filter(content="cross reply").exists())()
+        )
+        await comm.disconnect()
+
+    async def test_deleting_original_nulls_reply_reference(self):
+        owner = await database_sync_to_async(User.objects.create_user)(username="delreply", password="pass1234")
+        server = await database_sync_to_async(Server.objects.create)(name="srv", owner=owner)
+        await database_sync_to_async(Membership.objects.create)(server=server, user=owner, role=Membership.ROLE_OWNER)
+        channel = await database_sync_to_async(Channel.objects.create)(server=server, name="general", type=Channel.TYPE_TEXT)
+        original = await database_sync_to_async(Message.objects.create)(
+            channel=channel, author=owner, content="original"
+        )
+        reply = await database_sync_to_async(Message.objects.create)(
+            channel=channel, author=owner, content="a reply", reply_to=original
+        )
+        comm = await self._connect(server, owner)
+
+        await comm.send_json_to({"type": "delete-message", "message_id": original.id})
+        event = await comm.receive_json_from()
+        self.assertEqual(event["kind"], "message-deleted")
+
+        await database_sync_to_async(reply.refresh_from_db)()
+        self.assertIsNone(reply.reply_to)
+        serialized = await database_sync_to_async(lambda: MessageSerializer(reply).data)()
+        self.assertIsNone(serialized["reply_to"])
+        await comm.disconnect()
+
+
 class UploadTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username="upowner", password="pass1234")
@@ -132,6 +224,29 @@ class UploadTests(TestCase):
     def test_upload_rejects_missing_file(self):
         response = self._client(self.owner_token).post(self.url, {"content": "no file"})
         self.assertEqual(response.status_code, 400)
+
+    def test_upload_with_reply_to(self):
+        original = Message.objects.create(channel=self.channel, author=self.owner, content="hi")
+        upload = SimpleUploadedFile("reply.png", b"filedata", content_type="image/png")
+        response = self._client(self.owner_token).post(
+            self.url, {"file": upload, "content": "re", "reply_to": original.id}
+        )
+        self.assertEqual(response.status_code, 201)
+        message = Message.objects.exclude(id=original.id).get()
+        self.assertEqual(message.reply_to_id, original.id)
+        data = MessageSerializer(message).data
+        self.assertEqual(data["reply_to"]["id"], original.id)
+        self.assertEqual(data["reply_to"]["content"], "hi")
+
+    def test_upload_with_reply_from_other_channel_rejected(self):
+        other_channel = Channel.objects.create(server=self.server, name="random", type=Channel.TYPE_TEXT)
+        original = Message.objects.create(channel=other_channel, author=self.owner, content="hi")
+        upload = SimpleUploadedFile("reply.png", b"filedata", content_type="image/png")
+        response = self._client(self.owner_token).post(
+            self.url, {"file": upload, "content": "re", "reply_to": original.id}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Message.objects.exclude(id=original.id).exists())
 
     def test_upload_rejects_oversized_file(self):
         upload = SimpleUploadedFile("big.bin", b"x" * (settings.MAX_UPLOAD_SIZE + 1))

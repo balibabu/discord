@@ -161,7 +161,7 @@ class MessageListView(APIView):
             channel = server.channels.get(id=channel_id, type=Channel.TYPE_TEXT)
         except Channel.DoesNotExist:
             return Response({"error": "Channel not found."}, status=status.HTTP_404_NOT_FOUND)
-        qs = channel.messages.select_related("author")
+        qs = channel.messages.select_related("author", "reply_to__author")
         if request.query_params.get("pinned") in ("1", "true", "yes"):
             pinned = list(qs.filter(pinned=True).all())
             return Response(
@@ -201,7 +201,9 @@ class MessageSearchView(APIView):
         if not query:
             return Response({"results": []})
         channel_id = request.query_params.get("channel_id")
-        qs = Message.objects.filter(channel__server=server).select_related("author", "channel").order_by("-id")
+        qs = Message.objects.filter(channel__server=server).select_related(
+            "author", "channel", "reply_to__author"
+        ).order_by("-id")
         if channel_id:
             qs = qs.filter(channel_id=channel_id)
         results = [
@@ -229,8 +231,17 @@ class MessageUploadView(APIView):
         if file.size > settings.MAX_UPLOAD_SIZE:
             return Response({"error": "File exceeds the 10 MB limit."}, status=413)
         content = (request.data.get("content") or "").strip()
+        reply_to_id = request.data.get("reply_to")
+        reply_to = None
+        if reply_to_id not in (None, ""):
+            try:
+                reply_to = Message.objects.select_related("author").get(
+                    id=reply_to_id, channel=channel
+                )
+            except (Message.DoesNotExist, ValueError, TypeError):
+                return Response({"error": "Invalid reply target."}, status=status.HTTP_400_BAD_REQUEST)
         message = Message.objects.create(
-            channel=channel, author=request.user, content=content, attachment=file
+            channel=channel, author=request.user, content=content, attachment=file, reply_to=reply_to
         )
         async_to_sync(broadcast_to_server)(
             server.id, {"kind": "message", "message": MessageSerializer(message).data}

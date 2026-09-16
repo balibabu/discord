@@ -6,6 +6,7 @@ import { useAuth } from '../stores/auth'
 import { startScreenShare, stopScreenShare } from '../ws/rtc'
 import { formatBytes, formatTimestamp, isImageName } from '../lib/format'
 import DeleteMessageModal from './modals/DeleteMessageModal'
+import ImageViewerModal from './modals/ImageViewerModal'
 import Avatar from './Avatar'
 
 const Markdown = lazy(() => import('./Markdown'))
@@ -656,21 +657,26 @@ function PendingAttachment({ item, onRemove }) {
 }
 
 function AttachmentView({ attachment }) {
+  const [viewing, setViewing] = useState(false)
+
   if (isImageName(attachment.name)) {
     return (
-      <a
-        href={attachment.url}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-1 block w-80 max-w-full h-60 rounded-lg overflow-hidden border border-black/20 bg-[#2b2d31]"
-      >
-        <img
-          src={attachment.url}
-          alt={attachment.name}
-          loading="lazy"
-          className="w-full h-full object-contain"
-        />
-      </a>
+      <>
+        <button
+          type="button"
+          onClick={() => setViewing(true)}
+          title="View image"
+          className="mt-1 block w-80 max-w-full h-60 rounded-lg overflow-hidden border border-black/20 bg-[#2b2d31]"
+        >
+          <img
+            src={attachment.url}
+            alt={attachment.name}
+            loading="lazy"
+            className="w-full h-full object-contain"
+          />
+        </button>
+        {viewing && <ImageViewerModal attachment={attachment} onClose={() => setViewing(false)} />}
+      </>
     )
   }
   return (

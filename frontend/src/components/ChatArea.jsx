@@ -771,6 +771,8 @@ function AttachmentView({ attachment }) {
     <a
       href={attachment.url}
       download={attachment.name}
+      target="_blank"
+      rel="noopener noreferrer"
       className="mt-1 flex items-center gap-2.5 bg-[#2b2d31] border border-black/20 hover:border-[#5865f2]/60 rounded-lg px-3 py-2 w-fit transition-colors"
     >
       <span className="w-10 h-10 rounded bg-[#5865f2]/20 flex items-center justify-center shrink-0">

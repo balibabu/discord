@@ -21,6 +21,8 @@ export default function ImageViewerModal({ attachment, onClose }) {
           <a
             href={attachment.url}
             download={attachment.name}
+            target="_blank"
+            rel="noopener noreferrer"
             title="Download"
             className="p-1.5 rounded text-gray-300 hover:text-white hover:bg-white/10 transition"
           >

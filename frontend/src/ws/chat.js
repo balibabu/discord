@@ -26,6 +26,13 @@ function handleEvent(serverId, data) {
       break
     case 'presence-leave':
       app.removeOnline(serverId, data.user_id)
+      app.removeTypingUser(data.user_id)
+      break
+    case 'typing':
+      app.setTyping(data.channel_id, data.user)
+      break
+    case 'typing-stop':
+      app.clearTyping(data.channel_id, data.user_id)
       break
     case 'message':
       if (data.message.author.id !== useAuth.getState().user?.id) {
@@ -36,6 +43,7 @@ function handleEvent(serverId, data) {
           channelId: data.message.channel,
         })
       }
+      app.clearTyping(data.message.channel, data.message.author.id)
       app.appendMessage(data.message)
       break
     case 'message-edited':
@@ -104,6 +112,16 @@ export function deleteChatMessage(messageId) {
 export function pinChatMessage(messageId, pinned) {
   if (!messageId) return
   sendTo(useApp.getState().activeServerId, { type: 'pin-message', message_id: messageId, pinned })
+}
+
+export function sendTyping(channelId) {
+  if (!channelId) return
+  sendTo(useApp.getState().activeServerId, { type: 'typing', channel_id: channelId })
+}
+
+export function sendStopTyping(channelId) {
+  if (!channelId) return
+  sendTo(useApp.getState().activeServerId, { type: 'stop-typing', channel_id: channelId })
 }
 
 export function disconnectAllChat() {

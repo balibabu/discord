@@ -99,6 +99,10 @@ class ChatConsumer(BaseServerConsumer):
             await self.handle_delete_message(data)
         elif msg_type == "pin-message":
             await self.handle_pin_message(data)
+        elif msg_type == "typing":
+            await self.handle_typing(data)
+        elif msg_type == "stop-typing":
+            await self.handle_stop_typing(data)
 
     @database_sync_to_async
     def save_message(self, channel_id, content, reply_to_id=None):
@@ -200,6 +204,28 @@ class ChatConsumer(BaseServerConsumer):
         if message is None:
             return
         await self.group_send_event({"kind": "message-pinned", "message": message})
+
+    async def handle_typing(self, data):
+        channel_id = data.get("channel_id")
+        if channel_id is None:
+            return
+        await self.group_send_event(
+            {
+                "kind": "typing",
+                "channel_id": channel_id,
+                "user": {"id": self.user.id, "username": self.user.username},
+            },
+            exclude_self=True,
+        )
+
+    async def handle_stop_typing(self, data):
+        channel_id = data.get("channel_id")
+        if channel_id is None:
+            return
+        await self.group_send_event(
+            {"kind": "typing-stop", "channel_id": channel_id, "user_id": self.user.id},
+            exclude_self=True,
+        )
 
 
 class RTCConsumer(BaseServerConsumer):

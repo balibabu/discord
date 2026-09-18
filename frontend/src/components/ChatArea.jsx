@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronUp, CornerUpLeft, FileText, Hash, Loader2, Menu, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Trash2, Users, X } from 'lucide-react'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
 import { useAuth } from '../stores/auth'
 import { startScreenShare, stopScreenShare } from '../ws/rtc'
+import { sendTyping, sendStopTyping } from '../ws/chat'
 import { formatBytes, formatTimestamp, isImageName } from '../lib/format'
 import DeleteMessageModal from './modals/DeleteMessageModal'
 import ImageViewerModal from './modals/ImageViewerModal'
@@ -12,9 +13,11 @@ import Avatar from './Avatar'
 const Markdown = lazy(() => import('./Markdown'))
 
 const MAX_ATTACHMENTS = 10
+const TYPING_TIMEOUT_MS = 6000
+const TYPING_THROTTLE_MS = 2500
 
 export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
-  const { serverDetail, activeChannelId, messages, hasMore, loadingOlder, pinnedMessages, sendMessage, deleteMessage, loadOlderMessages, togglePinMessage, searchMessages, jumpToMessage, jumpTargetId, clearJumpTarget } = useApp()
+  const { serverDetail, activeChannelId, messages, hasMore, loadingOlder, pinnedMessages, typingByChannel, clearTyping, sendMessage, deleteMessage, loadOlderMessages, togglePinMessage, searchMessages, jumpToMessage, jumpTargetId, clearJumpTarget } = useApp()
   const voice = useVoice()
   const me = useAuth((s) => s.user)
   const [deleting, setDeleting] = useState(null)
@@ -47,8 +50,38 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   const hasMessages = channelMessages.length > 0
   const jumpTargetPresent = jumpTargetId != null && channelMessages.some((m) => m.id === jumpTargetId)
 
+  const channelTyping = typingByChannel[activeChannelId] || {}
+  const typingCount = Object.keys(channelTyping).length
+  const [typingTick, setTypingTick] = useState(0)
+  const typingState = useRef({ active: false, lastSent: 0 })
+
+  useEffect(() => {
+    if (typingCount === 0) return
+    const interval = setInterval(() => {
+      const entries = useApp.getState().typingByChannel[activeChannelId] || {}
+      const now = Date.now()
+      for (const [id, info] of Object.entries(entries)) {
+        if (now - info.at >= TYPING_TIMEOUT_MS) clearTyping(activeChannelId, Number(id))
+      }
+      setTypingTick((n) => n + 1)
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [activeChannelId, typingCount, clearTyping])
+
+  const typingUsers = useMemo(() => {
+    const now = Date.now()
+    return Object.entries(channelTyping)
+      .filter(([id, info]) => Number(id) !== me?.id && now - info.at < TYPING_TIMEOUT_MS)
+      .map(([id, info]) => ({ id: Number(id), username: info.username }))
+      .sort((a, b) => a.username.localeCompare(b.username))
+  }, [channelTyping, me?.id, typingTick])
+
   const [replyChannel, setReplyChannel] = useState(activeChannelId)
   if (activeChannelId !== replyChannel) {
+    if (typingState.current.active) {
+      typingState.current.active = false
+      sendStopTyping(replyChannel)
+    }
     setReplyChannel(activeChannelId)
     setReplyTo(null)
   }
@@ -222,6 +255,21 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
     e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px'
   }
 
+  const handleTypingInput = (e) => {
+    handleResize(e)
+    const text = e.target.value
+    if (text.length > 0) {
+      const now = Date.now()
+      if (!typingState.current.active || now - typingState.current.lastSent > TYPING_THROTTLE_MS) {
+        typingState.current = { active: true, lastSent: now }
+        sendTyping(activeChannelId)
+      }
+    } else if (typingState.current.active) {
+      typingState.current.active = false
+      sendStopTyping(activeChannelId)
+    }
+  }
+
   const submit = async () => {
     const input = inputRef.current
     const text = input.value.trim()
@@ -230,6 +278,10 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
     try {
       const ok = await sendMessage(text, attachments.map((a) => a.file), replyTo?.id ?? null)
       if (ok === false) return
+      if (typingState.current.active) {
+        typingState.current.active = false
+        sendStopTyping(activeChannelId)
+      }
       clearAttachments(attachments)
       input.value = ''
       input.style.height = 'auto'
@@ -415,6 +467,22 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
       )}
 
       <div className="p-4 pt-1 shrink-0">
+        <div className="h-4 mb-0.5 px-1 flex items-center gap-1.5 text-[11px] text-gray-400 font-medium overflow-hidden">
+          {typingUsers.length > 0 && (
+            <>
+              <span className="flex items-center gap-0.5 shrink-0" aria-hidden="true">
+                {[0, 150, 300].map((delay) => (
+                  <span
+                    key={delay}
+                    className="w-1 h-1 rounded-full bg-gray-400 animate-bounce"
+                    style={{ animationDelay: `${delay}ms` }}
+                  />
+                ))}
+              </span>
+              <TypingIndicator users={typingUsers} />
+            </>
+          )}
+        </div>
         <div className="bg-[#383a40] rounded-lg px-3 py-2 focus-within:ring-1 focus-within:ring-white/20">
           {replyTo && (
             <div className="flex items-center gap-2 pb-2 mb-2 border-b border-black/20 text-xs min-w-0">
@@ -457,7 +525,7 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
               placeholder={`Message #${channel?.name || 'channel'} (Enter to send, Shift + Enter for new line)`}
               className="bg-transparent flex-1 text-gray-100 placeholder-gray-500 focus:outline-none text-sm resize-none max-h-36 overflow-y-auto leading-relaxed py-1 select-text"
               onKeyDown={handleKeyDown}
-              onInput={handleResize}
+              onInput={handleTypingInput}
               onPaste={handlePaste}
             />
             <button
@@ -472,6 +540,26 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
         </div>
       </div>
     </div>
+  )
+}
+
+function TypingIndicator({ users }) {
+  const names = users.map((u) => u.username)
+  if (names.length > 3) return <span className="truncate">Several people are typing...</span>
+  const parts = []
+  names.forEach((name, i) => {
+    if (i > 0) parts.push(<span key={`sep-${i}`}>{i === names.length - 1 ? ' and ' : ', '}</span>)
+    parts.push(
+      <strong key={`name-${i}`} className="font-semibold text-[#c9cdfb]">
+        {name}
+      </strong>
+    )
+  })
+  return (
+    <span className="truncate">
+      {parts}
+      {names.length === 1 ? ' is typing...' : ' are typing...'}
+    </span>
   )
 }
 

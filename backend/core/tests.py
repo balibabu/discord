@@ -8,6 +8,7 @@ from channels.testing import WebsocketCommunicator
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, TransactionTestCase, override_settings
+from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
 from rest_framework.authtoken.models import Token
 
 from config.asgi import application
@@ -168,6 +169,88 @@ class MessageReplyTests(TransactionTestCase):
         serialized = await database_sync_to_async(lambda: MessageSerializer(reply).data)()
         self.assertIsNone(serialized["reply_to"])
         await comm.disconnect()
+
+
+class AvatarTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="avuser", password="pass1234")
+        self.token = Token.objects.create(user=self.user)
+        self.media_root = Path(tempfile.mkdtemp(prefix="nexus-test-media-"))
+        media_override = override_settings(MEDIA_ROOT=self.media_root)
+        media_override.enable()
+        self.addCleanup(media_override.disable)
+        self.addCleanup(shutil.rmtree, self.media_root, ignore_errors=True)
+
+    def _client(self):
+        from django.test import Client
+
+        client = Client()
+        client.defaults["HTTP_AUTHORIZATION"] = f"Token {self.token.key}"
+        return client
+
+    def _patch_multipart(self, client, data):
+        return client.patch(
+            "/api/auth/me/",
+            data=encode_multipart(BOUNDARY, data),
+            content_type=MULTIPART_CONTENT,
+        )
+
+    def test_default_avatar_is_empty(self):
+        response = self._client().get("/api/auth/me/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["avatar"], "")
+
+    def test_upload_avatar_returns_media_url(self):
+        upload = SimpleUploadedFile("me.png", b"filedata", content_type="image/png")
+        response = self._patch_multipart(self._client(), {"avatar": upload})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["avatar"].startswith("/media/avatars/"))
+        self.user.refresh_from_db()
+        self.assertIn("avatars/", self.user.avatar_image.name)
+
+    def test_upload_replaces_previous_avatar(self):
+        first = SimpleUploadedFile("one.png", b"one", content_type="image/png")
+        second = SimpleUploadedFile("two.png", b"two", content_type="image/png")
+        client = self._client()
+        self._patch_multipart(client, {"avatar": first})
+        self.user.refresh_from_db()
+        old_name = self.user.avatar_image.name
+        response = self._patch_multipart(client, {"avatar": second})
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertNotEqual(self.user.avatar_image.name, old_name)
+        self.assertFalse((self.media_root / old_name).exists())
+
+    def test_remove_avatar(self):
+        upload = SimpleUploadedFile("me.png", b"filedata", content_type="image/png")
+        client = self._client()
+        self._patch_multipart(client, {"avatar": upload})
+        response = client.patch("/api/auth/me/", data='{"avatar": ""}', content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["avatar"], "")
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.avatar_image)
+
+    def test_upload_rejects_non_image(self):
+        upload = SimpleUploadedFile("notes.txt", b"hello", content_type="text/plain")
+        response = self._patch_multipart(self._client(), {"avatar": upload})
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.avatar_image)
+
+    def test_upload_rejects_oversized_image(self):
+        upload = SimpleUploadedFile("big.png", b"x" * (settings.MAX_AVATAR_SIZE + 1), content_type="image/png")
+        response = self._patch_multipart(self._client(), {"avatar": upload})
+        self.assertEqual(response.status_code, 413)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.avatar_image)
+
+    def test_avatar_included_for_other_users(self):
+        upload = SimpleUploadedFile("me.png", b"filedata", content_type="image/png")
+        self._patch_multipart(self._client(), {"avatar": upload})
+        response = self._client().get("/api/users/")
+        entry = next(u for u in response.data if u["id"] == self.user.id)
+        self.assertTrue(entry["avatar"].startswith("/media/avatars/"))
 
 
 class UploadTests(TestCase):

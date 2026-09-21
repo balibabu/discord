@@ -50,14 +50,29 @@ class LoginView(APIView):
         return Response(token_response(user))
 
 
+ALLOWED_AVATAR_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
 class MeView(APIView):
     def get(self, request):
         return Response(MeSerializer(request.user).data)
 
     def patch(self, request):
-        serializer = MeSerializer(request.user, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        avatar = request.FILES.get("avatar")
+        if avatar is not None:
+            if avatar.content_type not in ALLOWED_AVATAR_TYPES:
+                return Response({"avatar": ["Image must be a PNG, JPEG, GIF or WebP file."]}, status=status.HTTP_400_BAD_REQUEST)
+            if avatar.size > settings.MAX_AVATAR_SIZE:
+                return Response({"avatar": ["Avatar exceeds the 2 MB limit."]}, status=413)
+            if request.user.avatar_image:
+                request.user.avatar_image.delete(save=False)
+            request.user.avatar_image = avatar
+            request.user.save(update_fields=["avatar_image"])
+        elif request.data.get("avatar") == "":
+            if request.user.avatar_image:
+                request.user.avatar_image.delete(save=False)
+                request.user.avatar_image = None
+                request.user.save(update_fields=["avatar_image"])
         return Response(MeSerializer(request.user).data)
 
 

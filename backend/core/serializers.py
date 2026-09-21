@@ -8,7 +8,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "avatar", "avatar_style"]
+        fields = ["id", "username", "avatar"]
 
 
 class MeSerializer(serializers.ModelSerializer):
@@ -16,20 +16,7 @@ class MeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "avatar", "avatar_style"]
-
-    def validate_avatar_style(self, value):
-        value = (value or "").strip()
-        if value and value not in User.AVATAR_STYLES:
-            raise serializers.ValidationError("Unknown avatar style.")
-        return value
-
-    def update(self, instance, validated_data):
-        style = validated_data.get("avatar_style")
-        if style is not None:
-            instance.avatar_style = style
-        instance.save(update_fields=["avatar_style"])
-        return instance
+        fields = ["id", "username", "avatar"]
 
 
 class PasswordChangeSerializer(serializers.Serializer):

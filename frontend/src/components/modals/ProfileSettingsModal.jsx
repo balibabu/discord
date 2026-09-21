@@ -1,20 +1,21 @@
-import { useState } from 'react'
-import { KeyRound } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { ImagePlus, KeyRound, Trash2 } from 'lucide-react'
 import { useAuth } from '../../stores/auth'
-import { AVATAR_STYLES } from '../Avatar'
+import { avatarLetterColor } from '../Avatar'
 import { ModalShell } from './CreateServerModal'
 
-const PREVIEW_SEED = 'preview'
+const MAX_AVATAR_SIZE = 2 * 1024 * 1024
 
 export default function ProfileSettingsModal({ onClose }) {
   const user = useAuth((s) => s.user)
   const updateMe = useAuth((s) => s.updateMe)
   const changePassword = useAuth((s) => s.changePassword)
 
-  const [style, setStyle] = useState(user?.avatar_style || '')
-  const [savedStyle, setSavedStyle] = useState(false)
-  const [styleBusy, setStyleBusy] = useState(false)
-  const [styleError, setStyleError] = useState('')
+  const fileInputRef = useRef(null)
+
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const [avatarError, setAvatarError] = useState('')
+  const [avatarSaved, setAvatarSaved] = useState(false)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -25,19 +26,45 @@ export default function ProfileSettingsModal({ onClose }) {
 
   const letter = (user?.username || '?').trim().charAt(0).toUpperCase()
 
-  const pickStyle = async (value) => {
-    if (styleBusy) return
-    setStyleBusy(true)
-    setStyleError('')
-    setSavedStyle(false)
+  const uploadAvatar = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || avatarBusy) return
+    setAvatarError('')
+    setAvatarSaved(false)
+    if (!file.type.startsWith('image/')) {
+      setAvatarError('Please choose an image file.')
+      return
+    }
+    if (file.size > MAX_AVATAR_SIZE) {
+      setAvatarError('Image exceeds the 2 MB limit.')
+      return
+    }
+    setAvatarBusy(true)
     try {
-      await updateMe({ avatar_style: value })
-      setStyle(value)
-      setSavedStyle(true)
+      const form = new FormData()
+      form.append('avatar', file)
+      await updateMe(form)
+      setAvatarSaved(true)
     } catch (err) {
-      setStyleError(err.response?.data?.avatar_style?.[0] || 'Could not update avatar.')
+      setAvatarError(err.response?.data?.avatar?.[0] || 'Could not upload image.')
     } finally {
-      setStyleBusy(false)
+      setAvatarBusy(false)
+    }
+  }
+
+  const removeAvatar = async () => {
+    if (avatarBusy) return
+    setAvatarError('')
+    setAvatarSaved(false)
+    setAvatarBusy(true)
+    try {
+      await updateMe({ avatar: '' })
+      setAvatarSaved(true)
+    } catch (err) {
+      setAvatarError(err.response?.data?.avatar?.[0] || 'Could not remove image.')
+    } finally {
+      setAvatarBusy(false)
     }
   }
 
@@ -73,38 +100,49 @@ export default function ProfileSettingsModal({ onClose }) {
       <div className="space-y-5">
         <div>
           <span className="block text-xs font-bold text-gray-300 uppercase tracking-wide mb-2">Avatar</span>
-          <div className="grid grid-cols-4 gap-2">
-            <button
-              type="button"
-              disabled={styleBusy}
-              onClick={() => pickStyle('')}
-              className={`h-16 rounded-lg flex items-center justify-center border-2 transition ${style === '' ? 'border-[#5865f2] bg-[#1e1f22]' : 'border-transparent bg-[#1e1f22]/60 hover:border-gray-600'} disabled:opacity-50`}
-              title="Use username initial"
-            >
-              <span className="w-9 h-9 rounded-full bg-[#5865f2] flex items-center justify-center text-base font-bold text-white">
-                {letter}
-              </span>
-            </button>
-            {AVATAR_STYLES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                disabled={styleBusy}
-                onClick={() => pickStyle(s)}
-                className={`h-16 rounded-lg border-2 bg-[#1e1f22] overflow-hidden transition ${style === s ? 'border-[#5865f2]' : 'border-transparent hover:border-gray-600'} disabled:opacity-50`}
-                title={s}
+          <div className="flex items-center gap-4">
+            {user?.avatar ? (
+              <img
+                src={user.avatar}
+                alt="avatar preview"
+                className="w-20 h-20 rounded-full object-cover bg-slate-700"
+                draggable="false"
+              />
+            ) : (
+              <div
+                className={`w-20 h-20 rounded-full flex items-center justify-center font-bold text-white text-3xl ${avatarLetterColor(user)}`}
               >
-                <img
-                  src={`https://api.dicebear.com/7.x/${s}/svg?seed=${PREVIEW_SEED}`}
-                  alt={s}
-                  className="w-full h-full"
-                  draggable="false"
-                />
+                {letter}
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={uploadAvatar} />
+              <button
+                type="button"
+                disabled={avatarBusy}
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#5865f2] hover:bg-[#4752c4] disabled:opacity-50 text-white rounded transition"
+              >
+                <ImagePlus className="w-3.5 h-3.5" />
+                {user?.avatar ? 'Change Image' : 'Upload Image'}
               </button>
-            ))}
+              {user?.avatar && (
+                <button
+                  type="button"
+                  disabled={avatarBusy}
+                  onClick={removeAvatar}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-transparent border border-red-500/40 hover:bg-red-500/10 disabled:opacity-50 text-red-400 rounded transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Remove
+                </button>
+              )}
+              {!user?.avatar && <p className="text-[11px] text-gray-500">Defaults to the first letter of your username.</p>}
+            </div>
           </div>
-          {savedStyle && <p className="text-[11px] text-[#23a55a] mt-2">Avatar saved.</p>}
-          {styleError && <p className="text-[11px] text-red-400 mt-2">{styleError}</p>}
+          {avatarBusy && <p className="text-[11px] text-gray-400 mt-2">Uploading…</p>}
+          {avatarSaved && !avatarBusy && <p className="text-[11px] text-[#23a55a] mt-2">Avatar saved.</p>}
+          {avatarError && <p className="text-[11px] text-red-400 mt-2">{avatarError}</p>}
         </div>
 
         <div className="border-t border-white/10 pt-4">

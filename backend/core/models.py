@@ -3,23 +3,12 @@ from django.db import models
 
 
 class User(AbstractUser):
-    AVATAR_STYLES = [
-        "bottts",
-        "adventurer",
-        "avataaars",
-        "fun-emoji",
-        "lorelei",
-        "micah",
-        "pixel-art",
-        "thumbs",
-    ]
-
-    avatar_style = models.CharField(max_length=32, blank=True, default="")
+    avatar_image = models.FileField(upload_to="avatars/%Y/%m/%d/", blank=True, null=True)
 
     @property
     def avatar(self):
-        if self.avatar_style:
-            return f"https://api.dicebear.com/7.x/{self.avatar_style}/svg?seed={self.username}"
+        if self.avatar_image:
+            return self.avatar_image.url
         return ""
 
     class Meta:

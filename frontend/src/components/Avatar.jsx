@@ -1,14 +1,3 @@
-const STYLES = [
-  'bottts',
-  'adventurer',
-  'avataaars',
-  'fun-emoji',
-  'lorelei',
-  'micah',
-  'pixel-art',
-  'thumbs',
-]
-
 const LETTER_COLORS = [
   'bg-[#5865f2]',
   'bg-[#23a55a]',
@@ -19,11 +8,11 @@ const LETTER_COLORS = [
   'bg-[#f23f43]',
 ]
 
-export const AVATAR_STYLES = STYLES
+export const avatarLetterColor = (user) => LETTER_COLORS[(user?.id || 0) % LETTER_COLORS.length]
 
 export default function Avatar({ user, className = 'w-8 h-8', statusDot = null, onClick }) {
   const letter = (user?.username || '?').trim().charAt(0).toUpperCase()
-  const color = LETTER_COLORS[(user?.id || 0) % LETTER_COLORS.length]
+  const color = avatarLetterColor(user)
   return (
     <div
       className={`relative shrink-0 ${onClick ? 'cursor-pointer' : ''}`}

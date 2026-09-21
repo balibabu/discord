@@ -33,7 +33,7 @@ export const useApp = create((set, get) => ({
     if (get().activeServerId !== serverId) return
     const firstText = data.channels.find((c) => c.type === 'text')
     set({ serverDetail: data, activeChannelId: firstText ? firstText.id : null })
-    if (firstText) get().loadMessages(firstText.id)
+    data.channels.filter((c) => c.type === 'text').forEach((c) => get().loadMessages(c.id))
   },
 
   selectChannel: (channelId) => {

@@ -144,7 +144,7 @@ class ChannelCreateView(APIView):
         return Response(ChannelSerializer(channel).data, status=status.HTTP_201_CREATED)
 
 
-class ChannelUpdateView(APIView):
+class ChannelDetailView(APIView):
     def patch(self, request, server_id, channel_id):
         server, membership = get_membership_or_none(request.user, server_id)
         if membership is None:
@@ -165,6 +165,28 @@ class ChannelUpdateView(APIView):
             {"kind": "channel-updated", "channel": ChannelSerializer(channel).data},
         )
         return Response(ChannelSerializer(channel).data)
+
+    def delete(self, request, server_id, channel_id):
+        server, membership = get_membership_or_none(request.user, server_id)
+        if membership is None:
+            return Response({"error": "Not a member of this server."}, status=status.HTTP_403_FORBIDDEN)
+        if server.owner_id != request.user.id:
+            return Response({"error": "Only the server admin can delete channels."}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            channel = server.channels.get(id=channel_id)
+        except Channel.DoesNotExist:
+            return Response({"error": "Channel not found."}, status=status.HTTP_404_NOT_FOUND)
+        password = request.data.get("password")
+        if not password:
+            return Response({"error": "Password is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not request.user.check_password(password):
+            return Response({"error": "Incorrect password."}, status=status.HTTP_403_FORBIDDEN)
+        channel.delete()
+        async_to_sync(broadcast_to_server)(
+            server.id,
+            {"kind": "channel-deleted", "server_id": server.id, "channel_id": channel_id},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class MessageListView(APIView):

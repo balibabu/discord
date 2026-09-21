@@ -34,7 +34,7 @@ urlpatterns = [
     path("api/servers/<int:server_id>/channels/", views.ChannelCreateView.as_view()),
     path(
         "api/servers/<int:server_id>/channels/<int:channel_id>/",
-        views.ChannelUpdateView.as_view(),
+        views.ChannelDetailView.as_view(),
     ),
     path(
         "api/servers/<int:server_id>/channels/<int:channel_id>/messages/",

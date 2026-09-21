@@ -1,3 +1,4 @@
+import json
 import shutil
 import tempfile
 from pathlib import Path
@@ -336,6 +337,7 @@ class UploadTests(TestCase):
         response = self._client(self.owner_token).post(self.url, {"file": upload})
         self.assertEqual(response.status_code, 413)
         self.assertFalse(Message.objects.exists())
+
     async def test_relay_media_reaches_only_target(self):
         owner = await database_sync_to_async(User.objects.create_user)(username="owner", password="pass1234")
         other = await database_sync_to_async(User.objects.create_user)(username="other", password="pass1234")
@@ -370,3 +372,58 @@ class UploadTests(TestCase):
 
         await owner_comm.disconnect()
         await other_comm.disconnect()
+
+
+class ChannelDeleteTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="chdelowner", password="pass1234")
+        self.member = User.objects.create_user(username="chdelmember", password="pass1234")
+        self.outsider = User.objects.create_user(username="chdeloutsider", password="pass1234")
+        self.server = Server.objects.create(name="srv", owner=self.owner)
+        Membership.objects.create(server=self.server, user=self.owner, role=Membership.ROLE_OWNER)
+        Membership.objects.create(server=self.server, user=self.member, role=Membership.ROLE_MEMBER)
+        self.channel = Channel.objects.create(server=self.server, name="general", type=Channel.TYPE_TEXT)
+        Message.objects.create(channel=self.channel, author=self.owner, content="hi")
+        self.owner_token = Token.objects.create(user=self.owner)
+        self.member_token = Token.objects.create(user=self.member)
+        self.outsider_token = Token.objects.create(user=self.outsider)
+        self.url = f"/api/servers/{self.server.id}/channels/{self.channel.id}/"
+
+    def _client(self, token):
+        from django.test import Client
+
+        client = Client()
+        client.defaults["HTTP_AUTHORIZATION"] = f"Token {token.key}"
+        return client
+
+    def _delete(self, token, payload):
+        return self._client(token).delete(
+            self.url, json.dumps(payload), content_type="application/json"
+        )
+
+    def test_owner_deletes_channel_with_password(self):
+        response = self._delete(self.owner_token, {"password": "pass1234"})
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Channel.objects.filter(id=self.channel.id).exists())
+        self.assertFalse(Message.objects.exists())
+
+    def test_wrong_password_rejected(self):
+        response = self._delete(self.owner_token, {"password": "wrongpass"})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"], "Incorrect password.")
+        self.assertTrue(Channel.objects.filter(id=self.channel.id).exists())
+
+    def test_missing_password_rejected(self):
+        response = self._delete(self.owner_token, {})
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(Channel.objects.filter(id=self.channel.id).exists())
+
+    def test_member_cannot_delete(self):
+        response = self._delete(self.member_token, {"password": "pass1234"})
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Channel.objects.filter(id=self.channel.id).exists())
+
+    def test_outsider_rejected(self):
+        response = self._delete(self.outsider_token, {"password": "pass1234"})
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Channel.objects.filter(id=self.channel.id).exists())

@@ -318,6 +318,43 @@ export const useApp = create((set, get) => ({
     })
   },
 
+  applyChannelDelete: (serverId, channelId) => {
+    set((s) => {
+      const drop = (map) => {
+        if (!(channelId in map)) return map
+        const next = { ...map }
+        delete next[channelId]
+        return next
+      }
+      const state = {
+        messages: drop(s.messages),
+        hasMore: drop(s.hasMore),
+        hasNewer: drop(s.hasNewer),
+        loadingOlder: drop(s.loadingOlder),
+        pinnedMessages: drop(s.pinnedMessages),
+        typingByChannel: drop(s.typingByChannel),
+      }
+      if (!s.serverDetail || String(s.serverDetail.id) !== String(serverId)) return state
+      const channels = s.serverDetail.channels.filter((c) => c.id !== channelId)
+      return {
+        ...state,
+        serverDetail: { ...s.serverDetail, channels },
+        activeChannelId:
+          s.activeChannelId === channelId
+            ? channels.find((c) => c.type === 'text')?.id ?? null
+            : s.activeChannelId,
+      }
+    })
+    const active = get().activeChannelId
+    if (active) get().loadMessages(active)
+  },
+
+  deleteChannel: async (channelId, password) => {
+    const serverId = get().activeServerId
+    await api.delete(`/servers/${serverId}/channels/${channelId}/`, { data: { password } })
+    get().applyChannelDelete(serverId, channelId)
+  },
+
   addMember: async (userId) => {
     const serverId = get().activeServerId
     await api.post(`/servers/${serverId}/members/`, { user_id: userId })

@@ -1,16 +1,14 @@
-import { ChevronDown, Hash, Headphones, Menu, Mic, MicOff, MonitorUp, PhoneOff, Plus, Volume2, VolumeX, Activity, Settings, AudioWaveform } from 'lucide-react'
+import { ChevronDown, Hash, Headphones, Menu, Mic, MicOff, MonitorUp, PhoneOff, Plus, Volume2, VolumeX, Activity, Settings } from 'lucide-react'
 import { useAuth } from '../stores/auth'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
-import { useNoise } from '../stores/noise'
-import { joinVoice, leaveVoice, toggleMute, toggleDeafen, setNoiseCancellation, setNoiseIntensity } from '../ws/rtc'
+import { joinVoice, leaveVoice, toggleMute, toggleDeafen } from '../ws/rtc'
 import Avatar from './Avatar'
 
 export default function ChannelSidebar({ onAddChannel, onChannelSettings, onOpenProfile, onCloseDrawer }) {
   const { serverDetail, activeServerId, activeChannelId, selectChannel } = useApp()
   const user = useAuth((s) => s.user)
   const voice = useVoice()
-  const noise = useNoise()
 
   if (!serverDetail) {
     return (
@@ -139,56 +137,24 @@ export default function ChannelSidebar({ onAddChannel, onChannelSettings, onOpen
       </div>
 
       {voice.inVoice && (
-        <div className="bg-[#232428] px-3 py-2 border-b border-[#1f2023]">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 overflow-hidden">
-              <Activity className="w-5 h-5 text-[#23a55a] shrink-0 animate-pulse" />
-              <div className="leading-tight truncate">
-                <div className="text-xs font-bold text-[#23a55a]">Voice Connected</div>
-                <div className="text-[11px] text-gray-400 truncate">
-                  {voice.voiceChannelName}
-                  {!voiceServerHere && <span className="text-[#23a55a] font-semibold"> · other server</span>}
-                </div>
+        <div className="bg-[#232428] px-3 py-2 border-b border-[#1f2023] flex items-center justify-between">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <Activity className="w-5 h-5 text-[#23a55a] shrink-0 animate-pulse" />
+            <div className="leading-tight truncate">
+              <div className="text-xs font-bold text-[#23a55a]">Voice Connected</div>
+              <div className="text-[11px] text-gray-400 truncate">
+                {voice.voiceChannelName}
+                {!voiceServerHere && <span className="text-[#23a55a] font-semibold"> · other server</span>}
               </div>
             </div>
-            <button
-              onClick={leaveVoice}
-              title="Disconnect"
-              className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-[#313338] rounded transition"
-            >
-              <PhoneOff className="w-4 h-4" />
-            </button>
           </div>
-          <div className="mt-2 pt-2 border-t border-[#1f2023]/60">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={noise.enabled}
-                onChange={(e) => setNoiseCancellation(e.target.checked)}
-                className="w-3.5 h-3.5 accent-[#5865f2] cursor-pointer"
-              />
-              <AudioWaveform className={`w-3.5 h-3.5 shrink-0 ${noise.enabled ? 'text-[#23a55a]' : 'text-gray-500'}`} />
-              <span className="text-[11px] text-gray-300 font-medium">Noise Suppression</span>
-              {noise.enabled && noise.active && (
-                <span className="ml-auto text-[9px] px-1 py-0.5 rounded bg-[#23a55a]/20 text-[#23a55a] font-bold shrink-0">ON</span>
-              )}
-            </label>
-            {noise.enabled && (
-              <div className="mt-1.5 flex items-center gap-2">
-                <span className="text-[9px] text-gray-500 font-bold shrink-0">MIN</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={noise.intensity}
-                  onChange={(e) => setNoiseIntensity(Number(e.target.value))}
-                  className="flex-1 h-1 accent-[#5865f2] cursor-pointer"
-                />
-                <span className="text-[9px] text-gray-500 font-bold shrink-0">MAX</span>
-                <span className="text-[10px] text-gray-400 font-bold w-7 text-right shrink-0 tabular-nums">{noise.intensity}</span>
-              </div>
-            )}
-          </div>
+          <button
+            onClick={leaveVoice}
+            title="Disconnect"
+            className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-[#313338] rounded transition"
+          >
+            <PhoneOff className="w-4 h-4" />
+          </button>
         </div>
       )}
 

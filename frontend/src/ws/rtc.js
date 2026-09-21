@@ -1,7 +1,5 @@
 import { useAuth } from '../stores/auth'
 import { useVoice } from '../stores/voice'
-import { useNoise } from '../stores/noise'
-import { getCleanStream, destroyNoiseGraph, updateNoiseIntensity } from '../lib/noise'
 import {
   playJoinVoice,
   playLeaveVoice,
@@ -28,7 +26,6 @@ const RECONNECT_MS = 4000
 
 const rtcSockets = {}
 
-let rawStream = null
 let localStream = null
 let screenStream = null
 let peers = {}
@@ -116,76 +113,10 @@ export function disconnectAllRtc() {
 }
 
 function stopLocalTracks() {
-  rawStream?.getTracks().forEach((t) => t.stop())
-  rawStream = null
   localStream?.getTracks().forEach((t) => t.stop())
   localStream = null
   screenStream?.getTracks().forEach((t) => t.stop())
   screenStream = null
-  destroyNoiseGraph()
-}
-
-function setMicEnabled(enabled) {
-  rawStream?.getAudioTracks().forEach((t) => (t.enabled = enabled))
-  localStream?.getAudioTracks().forEach((t) => (t.enabled = enabled))
-}
-
-async function buildSendStream() {
-  if (useNoise.getState().enabled && rawStream) {
-    try {
-      return await getCleanStream(rawStream)
-    } catch {
-      destroyNoiseGraph()
-    }
-  }
-  return rawStream
-}
-
-function swapLocalAudioStream(newStream) {
-  const oldStream = localStream
-  localStream = newStream
-  const muted = useVoice.getState().muted
-  newStream.getAudioTracks().forEach((t) => (t.enabled = !muted))
-  const newTrack = newStream.getAudioTracks()[0]
-  for (const key of Object.keys(peers)) {
-    const pc = peers[key].pc
-    const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
-    if (sender && newTrack) sender.replaceTrack(newTrack).catch(() => {})
-    else if (newTrack) pc.addTrack(newTrack, newStream)
-  }
-  for (const key of Object.keys(relay)) {
-    const entry = relay[key]
-    if (entry.audio) {
-      stopRecorder(entry.audio)
-      entry.audio = startRecorder(newStream, 'audio', key)
-    }
-  }
-  if (oldStream && oldStream !== rawStream) oldStream.getTracks().forEach((t) => t.stop())
-}
-
-export async function setNoiseCancellation(enabled) {
-  useNoise.getState().setEnabled(enabled)
-  if (!useVoice.getState().inVoice || !rawStream) return
-  if (enabled) {
-    try {
-      const clean = await getCleanStream(rawStream)
-      if (!useVoice.getState().inVoice || !rawStream) {
-        destroyNoiseGraph()
-        return
-      }
-      swapLocalAudioStream(clean)
-    } catch {
-      destroyNoiseGraph()
-    }
-  } else {
-    swapLocalAudioStream(rawStream)
-    destroyNoiseGraph()
-  }
-}
-
-export function setNoiseIntensity(value) {
-  useNoise.getState().setIntensity(value)
-  updateNoiseIntensity()
 }
 
 function teardownAllPeers() {
@@ -657,8 +588,7 @@ function handleMediaChunk(serverId, data) {
 export async function joinVoice(serverId, channelName) {
   if (useVoice.getState().inVoice) return
   if (!rtcSockets[serverId]) connectRtc(serverId)
-  rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-  localStream = await buildSendStream()
+  localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
   playJoinVoice()
   useVoice.getState().setLocalState({
     inVoice: true,
@@ -687,7 +617,7 @@ export function toggleMute() {
   const voice = useVoice.getState()
   if (!voice.inVoice) return
   const muted = !voice.muted
-  setMicEnabled(!muted)
+  localStream?.getAudioTracks().forEach((t) => (t.enabled = !muted))
   if (muted) playMute()
   else playUnmute()
   voice.setLocalState({ muted })
@@ -700,7 +630,7 @@ export function toggleDeafen() {
   const deafened = !voice.deafened
   const patch = { deafened }
   if (deafened && !voice.muted) {
-    setMicEnabled(false)
+    localStream?.getAudioTracks().forEach((t) => (t.enabled = false))
     patch.muted = true
   }
   if (deafened) playDeafen()

@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@jitsi/rnnoise-wasm':
-        specifier: ^0.2.1
-        version: 0.2.1
       axios:
         specifier: ^1.20.0
         version: 1.20.0(debug@4.4.3)
@@ -68,9 +65,6 @@ importers:
         version: 8.3.0(jiti@2.7.0)
 
 packages:
-
-  '@jitsi/rnnoise-wasm@0.2.1':
-    resolution: {integrity: sha512-iEj77www43pS2Yq+cfLZb+hFuI7L5ccisBzzPMcOjjLsG4/LAlkD1CY58/8gc84nHdLBGmD/OPIWGnvYnXvB0A==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1208,8 +1202,6 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
-
-  '@jitsi/rnnoise-wasm@0.2.1': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

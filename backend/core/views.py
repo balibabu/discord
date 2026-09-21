@@ -266,7 +266,7 @@ class MessageUploadView(APIView):
         if file is None:
             return Response({"error": "No file provided."}, status=status.HTTP_400_BAD_REQUEST)
         if file.size > settings.MAX_UPLOAD_SIZE:
-            return Response({"error": "File exceeds the 10 MB limit."}, status=413)
+            return Response({"error": "File exceeds the 100 MB limit."}, status=413)
         content = (request.data.get("content") or "").strip()
         reply_to_id = request.data.get("reply_to")
         reply_to = None

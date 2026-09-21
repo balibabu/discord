@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronUp, CornerUpLeft, FileText, Hash, Loader2, Menu, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Trash2, Users, X } from 'lucide-react'
+import { ArrowDown, ChevronUp, CornerUpLeft, FileText, Hash, Loader2, Menu, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Trash2, Users, X } from 'lucide-react'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
 import { useAuth } from '../stores/auth'
@@ -17,7 +17,7 @@ const TYPING_TIMEOUT_MS = 6000
 const TYPING_THROTTLE_MS = 2500
 
 export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
-  const { serverDetail, activeChannelId, messages, hasMore, loadingOlder, pinnedMessages, typingByChannel, clearTyping, sendMessage, deleteMessage, loadOlderMessages, togglePinMessage, searchMessages, jumpToMessage, jumpTargetId, clearJumpTarget } = useApp()
+  const { serverDetail, activeChannelId, messages, hasMore, hasNewer, loadingOlder, pinnedMessages, typingByChannel, clearTyping, sendMessage, deleteMessage, loadOlderMessages, togglePinMessage, searchMessages, jumpToMessage, jumpToLatest, jumpTargetId, clearJumpTarget } = useApp()
   const voice = useVoice()
   const me = useAuth((s) => s.user)
   const [deleting, setDeleting] = useState(null)
@@ -26,6 +26,7 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   const channel = serverDetail?.channels.find((c) => c.id === activeChannelId)
   const channelMessages = messages[activeChannelId] || []
   const channelHasMore = !!hasMore[activeChannelId]
+  const channelHasNewer = !!hasNewer[activeChannelId]
   const channelLoadingOlder = !!loadingOlder[activeChannelId]
   const channelPinned = pinnedMessages[activeChannelId] || []
   const inputRef = useRef(null)
@@ -44,6 +45,7 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   const atBottomRef = useRef(true)
   const scrollAnchor = useRef({ channel: null, firstId: null })
   const pendingScrollRestore = useRef(null)
+  const forceBottom = useRef(false)
   const jumpHighlighted = useRef(null)
 
   const firstMessageId = channelMessages[0]?.id ?? null
@@ -110,6 +112,12 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
     const anchor = scrollAnchor.current
     const prepended = anchor.channel === activeChannelId && anchor.firstId !== null && firstMessageId !== anchor.firstId
     scrollAnchor.current = { channel: activeChannelId, firstId: firstMessageId }
+    if (forceBottom.current) {
+      forceBottom.current = false
+      atBottomRef.current = true
+      el.scrollTop = el.scrollHeight
+      return
+    }
     if (jumpTargetId && jumpTargetPresent) {
       if (jumpHighlighted.current !== jumpTargetId) {
         jumpHighlighted.current = jumpTargetId
@@ -175,6 +183,11 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
     const el = scrollRef.current
     if (el) pendingScrollRestore.current = el.scrollHeight
     await loadOlderMessages(activeChannelId)
+  }
+
+  const handleJumpToLatest = async () => {
+    forceBottom.current = true
+    await jumpToLatest(activeChannelId)
   }
 
   const addFiles = (files) => {
@@ -454,6 +467,17 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
                 isJumpTarget={message.id === jumpTargetId}
               />
             ))}
+            {channelHasNewer && (
+              <div className="sticky bottom-0 flex justify-center pt-2 -mb-2 bg-gradient-to-t from-[#313338] via-[#313338] to-transparent pointer-events-none">
+                <button
+                  onClick={handleJumpToLatest}
+                  className="pointer-events-auto flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-[#5865f2] text-white hover:bg-[#4752c4] shadow-lg transition"
+                >
+                  <ArrowDown className="w-3.5 h-3.5" />
+                  See latest messages
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

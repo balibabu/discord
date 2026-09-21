@@ -13,6 +13,7 @@ export const useApp = create((set, get) => ({
   activeChannelId: null,
   messages: {},
   hasMore: {},
+  hasNewer: {},
   loadingOlder: {},
   pinnedMessages: {},
   onlineByServer: {},
@@ -48,6 +49,7 @@ export const useApp = create((set, get) => ({
     set((s) => ({
       messages: { ...s.messages, [channelId]: data.messages },
       hasMore: { ...s.hasMore, [channelId]: data.has_more },
+      hasNewer: { ...s.hasNewer, [channelId]: false },
     }))
     get().loadPinnedMessages(channelId)
   },
@@ -108,7 +110,19 @@ export const useApp = create((set, get) => ({
     set((s) => ({
       messages: { ...s.messages, [channelId]: list },
       hasMore: { ...s.hasMore, [channelId]: data.has_more },
+      hasNewer: { ...s.hasNewer, [channelId]: !!after.has_more },
     }))
+  },
+
+  jumpToLatest: async (channelId) => {
+    const serverId = get().activeServerId
+    const { data } = await api.get(`/servers/${serverId}/channels/${channelId}/messages/`)
+    set((s) => ({
+      messages: { ...s.messages, [channelId]: data.messages },
+      hasMore: { ...s.hasMore, [channelId]: data.has_more },
+      hasNewer: { ...s.hasNewer, [channelId]: false },
+    }))
+    get().loadPinnedMessages(channelId)
   },
 
   clearJumpTarget: () => set({ jumpTargetId: null }),
@@ -329,6 +343,7 @@ export const useApp = create((set, get) => ({
       activeChannelId: null,
       messages: {},
       hasMore: {},
+      hasNewer: {},
       loadingOlder: {},
       pinnedMessages: {},
       onlineByServer: {},

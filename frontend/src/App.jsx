@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './stores/auth'
+import { useVoice } from './stores/voice'
 import AuthPage from './components/AuthPage'
 import AppShell from './components/AppShell'
 
@@ -10,6 +11,16 @@ export default function App() {
   useEffect(() => {
     init()
   }, [init])
+
+  useEffect(() => {
+    const guard = (e) => {
+      if (!useVoice.getState().inVoice) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', guard)
+    return () => window.removeEventListener('beforeunload', guard)
+  }, [])
 
   if (!ready) {
     return <div className="h-dvh w-screen bg-[#313338]" />

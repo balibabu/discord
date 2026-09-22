@@ -599,15 +599,14 @@ function MessageItem({ message, isMine, onDeleteRequest, onReplyRequest, isJumpT
     jumpToMessage(message.channel, reply.id)
   }
 
-  const attachEditRef = (el) => {
-    editRef.current = el
-    if (el) {
-      el.style.height = 'auto'
-      el.style.height = Math.min(el.scrollHeight, 200) + 'px'
-      el.focus()
-      el.setSelectionRange(el.value.length, el.value.length)
-    }
-  }
+  useEffect(() => {
+    const el = editRef.current
+    if (!editing || !el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  }, [editing])
 
   const startEdit = () => {
     setDraft(message.content)
@@ -677,7 +676,7 @@ function MessageItem({ message, isMine, onDeleteRequest, onReplyRequest, isJumpT
         {editing ? (
           <div className="mt-1">
             <textarea
-              ref={attachEditRef}
+              ref={editRef}
               rows={1}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}

@@ -12,6 +12,10 @@ export function isImageName(name) {
   return IMAGE_EXTENSIONS.includes(ext)
 }
 
+export function formatTime(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
 export function formatTimestamp(iso) {
   const date = new Date(iso)
   const now = new Date()

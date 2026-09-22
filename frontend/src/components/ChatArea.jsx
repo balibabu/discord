@@ -7,7 +7,7 @@ import { startScreenShare, stopScreenShare } from '../ws/rtc'
 import { sendTyping, sendStopTyping } from '../ws/chat'
 import { copyText } from '../lib/clipboard'
 import { isTouchDevice } from '../lib/platform'
-import { formatBytes, formatTimestamp, isImageName } from '../lib/format'
+import { formatBytes, formatTime, formatTimestamp, isImageName } from '../lib/format'
 import DeleteMessageModal from './modals/DeleteMessageModal'
 import ImageViewerModal from './modals/ImageViewerModal'
 import Avatar from './Avatar'
@@ -15,6 +15,7 @@ import Avatar from './Avatar'
 const Markdown = lazy(() => import('./Markdown'))
 
 const MAX_ATTACHMENTS = 10
+const GROUP_WINDOW_MS = 7 * 60 * 1000
 const TYPING_TIMEOUT_MS = 6000
 const TYPING_THROTTLE_MS = 2500
 
@@ -52,6 +53,21 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
 
   const firstMessageId = channelMessages[0]?.id ?? null
   const hasMessages = channelMessages.length > 0
+
+  const messageGroups = useMemo(() => {
+    const groups = []
+    for (const message of channelMessages) {
+      const current = groups[groups.length - 1]
+      const prev = current?.[current.length - 1]
+      const grouped =
+        prev && !message.reply_to && prev.author?.id === message.author?.id &&
+        new Date(message.created_at) - new Date(prev.created_at) <= GROUP_WINDOW_MS
+      if (grouped) current.push(message)
+      else groups.push([message])
+    }
+    return groups
+  }, [channelMessages])
+
   const jumpTargetPresent = jumpTargetId != null && channelMessages.some((m) => m.id === jumpTargetId)
 
   const channelTyping = typingByChannel[activeChannelId] || {}
@@ -467,18 +483,23 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
                 </button>
               </div>
             )}
-            {channelMessages.map((message) => (
-              <MessageItem
-                key={message.id}
-                message={message}
-                isMine={message.author.id === me?.id}
-                onDeleteRequest={setDeleting}
-                onReplyRequest={(m) => {
-                  setReplyTo(m)
-                  inputRef.current?.focus()
-                }}
-                isJumpTarget={message.id === jumpTargetId}
-              />
+            {messageGroups.map((group) => (
+              <div key={group[0].id} className="space-y-0">
+                {group.map((message, index) => (
+                  <MessageItem
+                    key={message.id}
+                    message={message}
+                    grouped={index > 0}
+                    isMine={message.author.id === me?.id}
+                    onDeleteRequest={setDeleting}
+                    onReplyRequest={(m) => {
+                      setReplyTo(m)
+                      inputRef.current?.focus()
+                    }}
+                    isJumpTarget={message.id === jumpTargetId}
+                  />
+                ))}
+              </div>
             ))}
             {channelHasNewer && (
               <div className="sticky bottom-0 flex justify-center pt-2 -mb-2 bg-gradient-to-t from-[#313338] via-[#313338] to-transparent pointer-events-none">
@@ -600,7 +621,7 @@ function TypingIndicator({ users }) {
   )
 }
 
-function MessageItem({ message, isMine, onDeleteRequest, onReplyRequest, isJumpTarget }) {
+function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest, isJumpTarget }) {
   const { serverDetail, editMessage, togglePinMessage, jumpToMessage } = useApp()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.content)
@@ -688,11 +709,20 @@ function MessageItem({ message, isMine, onDeleteRequest, onReplyRequest, isJumpT
   return (
     <div
       data-message-id={message.id}
-      className={`group flex gap-3 -mx-4 px-4 py-1.5 rounded transition-colors ${isJumpTarget ? 'bg-[#5865f2]/15 ring-1 ring-[#5865f2]/40' : 'hover:bg-[#2e3035]'}`}
+      className={`group flex gap-3 -mx-4 px-4 ${grouped ? 'py-0' : 'py-1.5'} rounded transition-colors ${isJumpTarget ? 'bg-[#5865f2]/15 ring-1 ring-[#5865f2]/40' : 'hover:bg-[#2e3035]'}`}
     >
-      <div className="mt-0.5">
-        <Avatar user={message.author} className="w-10 h-10" />
-      </div>      <div className="flex-1 min-w-0">
+      {grouped ? (
+        <div className="w-2 sm:w-10 shrink-0 text-right">
+          <span className="hidden sm:inline opacity-0 group-hover:opacity-100 text-[10px] text-gray-500 leading-5 whitespace-nowrap tabular-nums transition-opacity">
+            {formatTime(message.created_at)}
+          </span>
+        </div>
+      ) : (
+        <div className="mt-0.5">
+          <Avatar user={message.author} className="w-10 h-10" />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
         {reply && !editing && (
           <div className="flex items-center gap-1.5 text-xs min-w-0">
             <CornerUpLeft className="w-3.5 h-3.5 text-gray-400 shrink-0" />
@@ -711,15 +741,17 @@ function MessageItem({ message, isMine, onDeleteRequest, onReplyRequest, isJumpT
             )}
           </div>
         )}
-        <div className="flex items-baseline gap-2">
-          <span className={`font-semibold text-sm hover:underline cursor-pointer ${isMine ? 'text-white' : 'text-[#c9cdfb]'}`}>
-            {message.author.username}
-          </span>
-          <span className="text-[11px] text-gray-400">{formatTimestamp(message.created_at)}</span>
-          {message.edited_at && !editing && (
-            <span className="text-[10px] text-gray-500">(edited)</span>
-          )}
-        </div>
+        {!grouped && (
+          <div className="flex items-baseline gap-2">
+            <span className={`font-semibold text-sm hover:underline cursor-pointer ${isMine ? 'text-white' : 'text-[#c9cdfb]'}`}>
+              {message.author.username}
+            </span>
+            <span className="text-[11px] text-gray-400">{formatTimestamp(message.created_at)}</span>
+            {message.edited_at && !editing && (
+              <span className="text-[10px] text-gray-500">(edited)</span>
+            )}
+          </div>
+        )}
         {editing ? (
           <div className="mt-1">
             <textarea
@@ -736,13 +768,18 @@ function MessageItem({ message, isMine, onDeleteRequest, onReplyRequest, isJumpT
             </div>
           </div>
         ) : (
-          <div className="mt-0.5">
-            <div className="text-sm text-gray-200 discord-markdown break-words select-text">
-              <Suspense fallback={<span className="text-gray-400">{message.content}</span>}>
-                <Markdown>{message.content}</Markdown>
-              </Suspense>
+          <div className={`${grouped ? '' : 'mt-0.5'} flex items-baseline gap-1.5 min-w-0`}>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm text-gray-200 discord-markdown break-words select-text">
+                <Suspense fallback={<span className="text-gray-400">{message.content}</span>}>
+                  <Markdown>{message.content}</Markdown>
+                </Suspense>
+              </div>
+              {message.attachment && <AttachmentView attachment={message.attachment} />}
             </div>
-            {message.attachment && <AttachmentView attachment={message.attachment} />}
+            {grouped && message.edited_at && (
+              <span className="text-[10px] text-gray-500 shrink-0">(edited)</span>
+            )}
           </div>
         )}
       </div>

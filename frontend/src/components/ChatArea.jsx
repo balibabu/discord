@@ -6,6 +6,7 @@ import { useAuth } from '../stores/auth'
 import { startScreenShare, stopScreenShare } from '../ws/rtc'
 import { sendTyping, sendStopTyping } from '../ws/chat'
 import { copyText } from '../lib/clipboard'
+import { isTouchDevice } from '../lib/platform'
 import { formatBytes, formatTimestamp, isImageName } from '../lib/format'
 import DeleteMessageModal from './modals/DeleteMessageModal'
 import ImageViewerModal from './modals/ImageViewerModal'
@@ -266,7 +267,7 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   }
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !isTouchDevice()) {
       e.preventDefault()
       submit()
     } else if (e.key === 'Escape' && replyTo) {
@@ -558,7 +559,7 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
             <textarea
               ref={inputRef}
               rows={1}
-              placeholder={`Message #${channel?.name || 'channel'} (Enter to send, Shift + Enter for new line)`}
+              placeholder={`Message #${channel?.name || 'channel'}${isTouchDevice() ? '' : ' (Enter to send, Shift + Enter for new line)'}`}
               className="bg-transparent flex-1 text-gray-100 placeholder-gray-500 focus:outline-none text-sm resize-none max-h-36 overflow-y-auto leading-relaxed py-1 select-text"
               onKeyDown={handleKeyDown}
               onInput={handleTypingInput}
@@ -671,7 +672,7 @@ function MessageItem({ message, isMine, onDeleteRequest, onReplyRequest, isJumpT
   }
 
   const handleEditKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !isTouchDevice()) {
       e.preventDefault()
       saveEdit()
     } else if (e.key === 'Escape') {
@@ -731,7 +732,7 @@ function MessageItem({ message, isMine, onDeleteRequest, onReplyRequest, isJumpT
               className="w-full bg-[#383a40] text-gray-100 text-sm rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-white/20 leading-relaxed break-words"
             />
             <div className="flex items-center gap-2 mt-1.5 text-[11px] text-gray-400">
-              <span>escape to <button onClick={cancelEdit} className="text-[#00a8fc] hover:underline">cancel</button> • enter to <button onClick={saveEdit} className="text-[#00a8fc] hover:underline">save</button></span>
+              <span>{isTouchDevice() ? 'tap to ' : 'escape to '}<button onClick={cancelEdit} className="text-[#00a8fc] hover:underline">cancel</button> • {isTouchDevice() ? 'tap to ' : 'enter to '}<button onClick={saveEdit} className="text-[#00a8fc] hover:underline">save</button></span>
             </div>
           </div>
         ) : (

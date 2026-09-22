@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { TriangleAlert } from 'lucide-react'
 import { useAuth } from '../stores/auth'
 import { useApp } from '../stores/app'
@@ -18,24 +18,74 @@ import ChannelSettingsModal from './modals/ChannelSettingsModal'
 import ProfileSettingsModal from './modals/ProfileSettingsModal'
 
 export default function AppShell() {
-  const { servers, loadServers, selectServer, reset } = useApp()
+  const { serversLoaded, serverDetail, activeServerId, activeChannelId, activeMessageId, loadServers, selectServer, selectChannel, jumpToMessage, clearActiveMessage, reset } = useApp()
   const logout = useAuth((s) => s.logout)
   const voice = useVoice()
   const navigate = useNavigate()
+  const params = useParams()
+  const location = useLocation()
   const [modal, setModal] = useState(null)
   const [leftOpen, setLeftOpen] = useState(false)
   const [rightOpen, setRightOpen] = useState(false)
   const anyDrawerOpen = leftOpen || rightOpen
-  const bootstrapped = useRef(false)
+  const appliedUrl = useRef(null)
 
   useEffect(() => {
-    if (bootstrapped.current) return
-    bootstrapped.current = true
-    loadServers().then((servers) => {
-      if (servers.length > 0) selectServer(servers[0].id)
-    })
+    loadServers()
     ensureNotificationPermission()
-  }, [loadServers, selectServer])
+  }, [loadServers])
+
+  useEffect(() => {
+    if (!serversLoaded) return
+    if (location.pathname === appliedUrl.current) return
+    appliedUrl.current = location.pathname
+    const state = useApp.getState()
+    const first = state.servers[0]
+    const urlServer = params.serverId
+      ? state.servers.find((s) => String(s.id) === String(params.serverId))
+      : null
+    if (!urlServer) {
+      if (first && String(state.activeServerId) !== String(first.id)) selectServer(first.id)
+      return
+    }
+    if (String(state.activeServerId) !== String(urlServer.id)) {
+      selectServer(urlServer.id, params.channelId).then(() => {
+        if (params.channelId && params.messageId) {
+          jumpToMessage(Number(params.channelId), Number(params.messageId))
+        }
+      })
+      return
+    }
+    if (params.channelId && String(state.activeChannelId) !== String(params.channelId)) {
+      if (params.messageId) {
+        jumpToMessage(Number(params.channelId), Number(params.messageId))
+        return
+      }
+      const channel = state.serverDetail?.channels.find(
+        (c) => String(c.id) === String(params.channelId) && c.type === 'text'
+      )
+      if (channel) selectChannel(channel.id)
+      return
+    }
+    if (params.channelId && params.messageId && String(state.activeMessageId) !== String(params.messageId)) {
+      jumpToMessage(Number(params.channelId), Number(params.messageId))
+    } else if (!params.messageId && state.activeMessageId != null) {
+      clearActiveMessage()
+    }
+  }, [location.pathname, serversLoaded, selectServer, selectChannel, jumpToMessage, clearActiveMessage])
+
+  useEffect(() => {
+    if (!activeServerId) return
+    if (!serverDetail || String(serverDetail.id) !== String(activeServerId)) return
+    let target = `/channels/${activeServerId}`
+    if (activeChannelId) {
+      target += `/${activeChannelId}`
+      if (activeMessageId) target += `/${activeMessageId}`
+    }
+    if (location.pathname === target) return
+    appliedUrl.current = target
+    navigate(target)
+  }, [activeServerId, activeChannelId, activeMessageId, serverDetail])
 
   const handleLogout = () => {
     reset()
@@ -43,7 +93,6 @@ export default function AppShell() {
     navigate('/login', { replace: true })
   }
 
-  const activeServerId = useApp((s) => s.activeServerId)
   const voiceServerHere = voice.inVoice && String(voice.voiceServerId) === String(activeServerId)
   const activeParticipants = voiceServerHere
     ? voice.participants

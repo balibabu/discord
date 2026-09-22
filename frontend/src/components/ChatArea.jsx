@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ChevronUp, CornerUpLeft, FileText, Hash, Loader2, Menu, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Trash2, Users, X } from 'lucide-react'
+import { ArrowDown, Check, ChevronUp, CornerUpLeft, FileText, Hash, Link2, Loader2, Menu, MonitorOff, MonitorUp, MoreVertical, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Trash2, Users, X } from 'lucide-react'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
 import { useAuth } from '../stores/auth'
 import { startScreenShare, stopScreenShare } from '../ws/rtc'
 import { sendTyping, sendStopTyping } from '../ws/chat'
+import { copyText } from '../lib/clipboard'
 import { formatBytes, formatTimestamp, isImageName } from '../lib/format'
 import DeleteMessageModal from './modals/DeleteMessageModal'
 import ImageViewerModal from './modals/ImageViewerModal'
@@ -91,6 +92,10 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
+    if (useApp.getState().jumpTargetId != null) {
+      atBottomRef.current = false
+      return
+    }
     atBottomRef.current = true
     el.scrollTop = el.scrollHeight
   }, [activeChannelId])
@@ -100,7 +105,7 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
     const content = contentRef.current
     if (!el || !content || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(() => {
-      if (atBottomRef.current) el.scrollTop = el.scrollHeight
+      if (atBottomRef.current && useApp.getState().jumpTargetId == null) el.scrollTop = el.scrollHeight
     })
     observer.observe(content)
     return () => observer.disconnect()
@@ -122,7 +127,10 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
       if (jumpHighlighted.current !== jumpTargetId) {
         jumpHighlighted.current = jumpTargetId
         const target = el.querySelector(`[data-message-id="${jumpTargetId}"]`)
-        if (target) target.scrollIntoView({ block: 'center', behavior: 'instant' })
+        if (target) {
+          atBottomRef.current = false
+          target.scrollIntoView({ block: 'center', behavior: 'instant' })
+        }
       }
       return
     }
@@ -138,6 +146,10 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
     if (!el) return
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
   }
+
+  useEffect(() => {
+    if (jumpTargetId == null) jumpHighlighted.current = null
+  }, [jumpTargetId])
 
   useEffect(() => {
     if (jumpTargetId && channelMessages.some((m) => m.id === jumpTargetId)) {
@@ -588,11 +600,45 @@ function TypingIndicator({ users }) {
 }
 
 function MessageItem({ message, isMine, onDeleteRequest, onReplyRequest, isJumpTarget }) {
-  const { editMessage, togglePinMessage, jumpToMessage } = useApp()
+  const { serverDetail, editMessage, togglePinMessage, jumpToMessage } = useApp()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.content)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState(null)
+  const [copied, setCopied] = useState(false)
   const editRef = useRef(null)
+  const menuRef = useRef(null)
+  const copyTimer = useRef(null)
   const reply = message.reply_to
+
+  useEffect(() => () => clearTimeout(copyTimer.current), [])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const close = () => setMenuOpen(false)
+    document.addEventListener('scroll', close, true)
+    return () => document.removeEventListener('scroll', close, true)
+  }, [menuOpen])
+
+  const toggleMenu = () => {
+    if (menuOpen) {
+      setMenuOpen(false)
+      return
+    }
+    const rect = menuRef.current.getBoundingClientRect()
+    setMenuPos({ top: Math.min(rect.bottom + 6, window.innerHeight - 240), right: window.innerWidth - rect.right })
+    setMenuOpen(true)
+  }
+
+  const copyLink = async () => {
+    await copyText(`${window.location.origin}/channels/${serverDetail?.id}/${message.channel}/${message.id}`)
+    setCopied(true)
+    clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => {
+      setCopied(false)
+      setMenuOpen(false)
+    }, 1000)
+  }
 
   const jumpToReply = () => {
     if (!reply || reply.deleted) return
@@ -700,42 +746,124 @@ function MessageItem({ message, isMine, onDeleteRequest, onReplyRequest, isJumpT
         )}
       </div>
       {!editing && (
-        <div className={`hover-reveal flex items-start gap-1 shrink-0 ${message.pinned ? 'opacity-100' : ''}`}>
-          <button
-            onClick={() => onReplyRequest(message)}
-            title="Reply"
-            className="p-1.5 rounded bg-[#2b2d31] hover:bg-[#5865f2] text-gray-300 hover:text-white transition"
-          >
-            <Reply className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => togglePinMessage(message.id, !message.pinned)}
-            title={message.pinned ? 'Unpin' : 'Pin'}
-            className={`p-1.5 rounded bg-[#2b2d31] transition ${message.pinned ? 'text-[#f0b232] hover:bg-[#3a2f16]' : 'text-gray-300 hover:bg-[#5865f2] hover:text-white'}`}
-          >
-            {message.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
-          </button>
-          {isMine && (
-            <>
-              <button
-                onClick={startEdit}
-                title="Edit"
-                className="p-1.5 rounded bg-[#2b2d31] hover:bg-[#5865f2] text-gray-300 hover:text-white transition"
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => onDeleteRequest(message)}
-                title="Delete"
-                className="p-1.5 rounded bg-[#2b2d31] hover:bg-red-500 text-gray-300 hover:text-white transition"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </>
-          )}
-        </div>
+        <>
+          <div className={`hover-reveal hidden md:flex items-start gap-1 shrink-0 ${message.pinned ? 'opacity-100' : ''}`}>
+            <button
+              onClick={() => onReplyRequest(message)}
+              title="Reply"
+              className="p-1.5 rounded bg-[#2b2d31] hover:bg-[#5865f2] text-gray-300 hover:text-white transition"
+            >
+              <Reply className="w-4 h-4" />
+            </button>
+            <button
+              onClick={copyLink}
+              title="Copy Message Link"
+              className={`p-1.5 rounded bg-[#2b2d31] transition ${copied ? 'text-[#23a55a]' : 'text-gray-300 hover:bg-[#5865f2] hover:text-white'}`}
+            >
+              {copied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={() => togglePinMessage(message.id, !message.pinned)}
+              title={message.pinned ? 'Unpin' : 'Pin'}
+              className={`p-1.5 rounded bg-[#2b2d31] transition ${message.pinned ? 'text-[#f0b232] hover:bg-[#3a2f16]' : 'text-gray-300 hover:bg-[#5865f2] hover:text-white'}`}
+            >
+              {message.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+            </button>
+            {isMine && (
+              <>
+                <button
+                  onClick={startEdit}
+                  title="Edit"
+                  className="p-1.5 rounded bg-[#2b2d31] hover:bg-[#5865f2] text-gray-300 hover:text-white transition"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => onDeleteRequest(message)}
+                  title="Delete"
+                  className="p-1.5 rounded bg-[#2b2d31] hover:bg-red-500 text-gray-300 hover:text-white transition"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </>
+            )}
+          </div>
+          <div className="relative shrink-0 md:hidden" ref={menuRef}>
+            <button
+              onClick={toggleMenu}
+              title="More"
+              className="p-1.5 rounded bg-[#2b2d31] text-gray-300 hover:text-white transition"
+            >
+              <MoreVertical className="w-4 h-4" />
+            </button>
+            {menuOpen && menuPos && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
+                <div
+                  className="fixed z-40 w-48 py-1 rounded-lg bg-[#111214] border border-black/40 shadow-xl"
+                  style={{ top: menuPos.top, right: Math.max(menuPos.right, 8) }}
+                >
+                  <MessageMenuItem
+                    icon={<Reply className="w-4 h-4" />}
+                    label="Reply"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      onReplyRequest(message)
+                    }}
+                  />
+                  <MessageMenuItem
+                    icon={copied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
+                    label={copied ? 'Copied!' : 'Copy Message Link'}
+                    onClick={copyLink}
+                  />
+                  <MessageMenuItem
+                    icon={message.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+                    label={message.pinned ? 'Unpin' : 'Pin'}
+                    onClick={() => {
+                      setMenuOpen(false)
+                      togglePinMessage(message.id, !message.pinned)
+                    }}
+                  />
+                  {isMine && (
+                    <MessageMenuItem
+                      icon={<Pencil className="w-4 h-4" />}
+                      label="Edit"
+                      onClick={() => {
+                        setMenuOpen(false)
+                        startEdit()
+                      }}
+                    />
+                  )}
+                  {isMine && (
+                    <MessageMenuItem
+                      danger
+                      icon={<Trash2 className="w-4 h-4" />}
+                      label="Delete"
+                      onClick={() => {
+                        setMenuOpen(false)
+                        onDeleteRequest(message)
+                      }}
+                    />
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </>
       )}
     </div>
+  )
+}
+
+function MessageMenuItem({ icon, label, danger, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition ${danger ? 'text-red-400 hover:bg-red-500/15' : 'text-gray-200 hover:bg-[#5865f2] hover:text-white'}`}
+    >
+      {icon}
+      <span className="font-medium">{label}</span>
+    </button>
   )
 }
 

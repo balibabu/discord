@@ -15,11 +15,16 @@ export default function App() {
     return <div className="h-dvh w-screen bg-[#313338]" />
   }
 
+  const shell = user ? <AppShell /> : <Navigate to="/login" replace />
+
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <AuthPage />} />
-        <Route path="/*" element={user ? <AppShell /> : <Navigate to="/login" replace />} />
+        <Route path="/channels/:serverId" element={shell} />
+        <Route path="/channels/:serverId/:channelId" element={shell} />
+        <Route path="/channels/:serverId/:channelId/:messageId" element={shell} />
+        <Route path="/*" element={shell} />
       </Routes>
     </BrowserRouter>
   )

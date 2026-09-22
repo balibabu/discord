@@ -11,6 +11,7 @@ export const useApp = create((set, get) => ({
   activeServerId: null,
   serverDetail: null,
   activeChannelId: null,
+  activeMessageId: null,
   messages: {},
   hasMore: {},
   hasNewer: {},
@@ -26,19 +27,23 @@ export const useApp = create((set, get) => ({
     return data
   },
 
-  selectServer: async (serverId) => {
-    set({ activeServerId: serverId, serverDetail: null, activeChannelId: null })
+  selectServer: async (serverId, preferredChannelId) => {
+    set({ activeServerId: serverId, serverDetail: null, activeChannelId: null, activeMessageId: null })
     connectChat(serverId)
     connectRtc(serverId)
     const { data } = await api.get(`/servers/${serverId}/`)
     if (get().activeServerId !== serverId) return
-    const firstText = data.channels.find((c) => c.type === 'text')
-    set({ serverDetail: data, activeChannelId: firstText ? firstText.id : null })
-    data.channels.filter((c) => c.type === 'text').forEach((c) => get().loadMessages(c.id))
+    const textChannels = data.channels.filter((c) => c.type === 'text')
+    const preferred = preferredChannelId
+      ? textChannels.find((c) => String(c.id) === String(preferredChannelId))
+      : null
+    const next = preferred || textChannels[0]
+    set({ serverDetail: data, activeChannelId: next ? next.id : null })
+    textChannels.forEach((c) => get().loadMessages(c.id))
   },
 
   selectChannel: (channelId) => {
-    set({ activeChannelId: channelId })
+    set({ activeChannelId: channelId, activeMessageId: null })
     get().loadMessages(channelId)
   },
 
@@ -46,6 +51,7 @@ export const useApp = create((set, get) => ({
     if (get().messages[channelId]) return
     const serverId = get().activeServerId
     const { data } = await api.get(`/servers/${serverId}/channels/${channelId}/messages/`)
+    if (get().messages[channelId]) return
     set((s) => ({
       messages: { ...s.messages, [channelId]: data.messages },
       hasMore: { ...s.hasMore, [channelId]: data.has_more },
@@ -93,7 +99,7 @@ export const useApp = create((set, get) => ({
   },
 
   jumpToMessage: async (channelId, messageId) => {
-    set({ activeChannelId: channelId, jumpTargetId: messageId })
+    set({ activeChannelId: channelId, jumpTargetId: messageId, activeMessageId: messageId })
     const state = get()
     if (state.messages[channelId]?.some((m) => m.id === messageId)) return
     const serverId = state.activeServerId
@@ -121,11 +127,13 @@ export const useApp = create((set, get) => ({
       messages: { ...s.messages, [channelId]: data.messages },
       hasMore: { ...s.hasMore, [channelId]: data.has_more },
       hasNewer: { ...s.hasNewer, [channelId]: false },
+      activeMessageId: null,
     }))
     get().loadPinnedMessages(channelId)
   },
 
   clearJumpTarget: () => set({ jumpTargetId: null }),
+  clearActiveMessage: () => set({ activeMessageId: null }),
 
   sendMessage: (content, files = [], replyToId = null) => {
     if (files.length > 0) {
@@ -343,6 +351,7 @@ export const useApp = create((set, get) => ({
           s.activeChannelId === channelId
             ? channels.find((c) => c.type === 'text')?.id ?? null
             : s.activeChannelId,
+        activeMessageId: s.activeChannelId === channelId ? null : s.activeMessageId,
       }
     })
     const active = get().activeChannelId
@@ -378,6 +387,7 @@ export const useApp = create((set, get) => ({
       activeServerId: null,
       serverDetail: null,
       activeChannelId: null,
+      activeMessageId: null,
       messages: {},
       hasMore: {},
       hasNewer: {},

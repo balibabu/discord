@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, Check, ChevronUp, CornerUpLeft, FileText, Hash, Link2, Loader2, Menu, MonitorOff, MonitorUp, MoreVertical, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Trash2, Users, X } from 'lucide-react'
+import { ArrowDown, Check, ChevronUp, CornerUpLeft, FileText, Hash, Link2, Loader2, Menu, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Trash2, Users, X } from 'lucide-react'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
 import { useAuth } from '../stores/auth'
@@ -652,6 +652,12 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
     setMenuOpen(true)
   }
 
+  const handleRowClick = (e) => {
+    if (!window.matchMedia('(pointer: coarse)').matches && window.innerWidth >= 768) return
+    if (e.target.closest('a, button, textarea, input')) return
+    toggleMenu()
+  }
+
   const copyLink = async () => {
     await copyText(`${window.location.origin}/channels/${serverDetail?.id}/${message.channel}/${message.id}`)
     setCopied(true)
@@ -708,6 +714,8 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
 
   return (
     <div
+      ref={menuRef}
+      onClick={handleRowClick}
       data-message-id={message.id}
       className={`group flex gap-3 -mx-4 px-4 ${grouped ? 'py-0' : 'py-1.5'} rounded transition-colors ${isJumpTarget ? 'bg-[#5865f2]/15 ring-1 ring-[#5865f2]/40' : 'hover:bg-[#2e3035]'}`}
     >
@@ -826,21 +834,13 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
               </>
             )}
           </div>
-          <div className="relative shrink-0 md:hidden" ref={menuRef}>
-            <button
-              onClick={toggleMenu}
-              title="More"
-              className="p-1.5 rounded bg-[#2b2d31] text-gray-300 hover:text-white transition"
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
-            {menuOpen && menuPos && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
-                <div
-                  className="fixed z-40 w-48 py-1 rounded-lg bg-[#111214] border border-black/40 shadow-xl"
-                  style={{ top: menuPos.top, right: Math.max(menuPos.right, 8) }}
-                >
+          {menuOpen && menuPos && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
+              <div
+                className="fixed z-40 w-48 py-1 rounded-lg bg-[#111214] border border-black/40 shadow-xl"
+                style={{ top: menuPos.top, right: Math.max(menuPos.right, 8) }}
+              >
                   <MessageMenuItem
                     icon={<Reply className="w-4 h-4" />}
                     label="Reply"
@@ -883,10 +883,9 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
                       }}
                     />
                   )}
-                </div>
-              </>
-            )}
-          </div>
+              </div>
+            </>
+          )}
         </>
       )}
     </div>

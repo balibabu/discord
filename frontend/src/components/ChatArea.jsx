@@ -712,13 +712,13 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
       className={`group flex gap-3 -mx-4 px-4 ${grouped ? 'py-0' : 'py-1.5'} rounded transition-colors ${isJumpTarget ? 'bg-[#5865f2]/15 ring-1 ring-[#5865f2]/40' : 'hover:bg-[#2e3035]'}`}
     >
       {grouped ? (
-        <div className="w-2 sm:w-10 shrink-0 text-right">
+        <div className="hidden sm:block sm:w-10 shrink-0 text-right">
           <span className="hidden sm:inline opacity-0 group-hover:opacity-100 text-[10px] text-gray-500 leading-5 whitespace-nowrap tabular-nums transition-opacity">
             {formatTime(message.created_at)}
           </span>
         </div>
       ) : (
-        <div className="mt-0.5">
+        <div className="mt-0.5 hidden sm:block">
           <Avatar user={message.author} className="w-10 h-10" />
         </div>
       )}

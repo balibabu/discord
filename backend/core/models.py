@@ -66,6 +66,7 @@ class Message(models.Model):
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="messages")
     content = models.TextField()
     attachment = models.FileField(upload_to="uploads/%Y/%m/%d/", blank=True, null=True)
+    attachment_transcript = models.TextField(blank=True, default="")
     reply_to = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="replies"
     )

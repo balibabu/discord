@@ -39,7 +39,7 @@ function handleEvent(serverId, data) {
         playReceive()
         showMessageNotification({
           title: data.message.author.username,
-          body: data.message.content || 'Sent an attachment',
+          body: data.message.content || data.message.attachment_transcript || 'Sent an attachment',
           channelId: data.message.channel,
         })
       }

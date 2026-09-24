@@ -129,7 +129,7 @@ class MessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Message
-        fields = ["id", "channel", "author", "content", "attachment", "reply_to", "created_at", "edited_at", "pinned"]
+        fields = ["id", "channel", "author", "content", "attachment", "attachment_transcript", "reply_to", "created_at", "edited_at", "pinned"]
 
     def get_attachment(self, obj):
         if not obj.attachment:

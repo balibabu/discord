@@ -12,6 +12,13 @@ export function isImageName(name) {
   return IMAGE_EXTENSIONS.includes(ext)
 }
 
+const AUDIO_EXTENSIONS = ['webm', 'mp3', 'm4a', 'aac', 'wav', 'ogg', 'opus', 'flac']
+
+export function isAudioName(name) {
+  const ext = (name || '').split('.').pop().toLowerCase()
+  return AUDIO_EXTENSIONS.includes(ext)
+}
+
 export function formatTime(iso) {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
 }

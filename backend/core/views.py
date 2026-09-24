@@ -1,3 +1,5 @@
+import threading
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
@@ -21,6 +23,7 @@ from .serializers import (
     ServerSerializer,
     UserSerializer,
 )
+from .transcription import transcribe_message, transcription_ready
 
 
 def token_response(user):
@@ -283,6 +286,9 @@ class MessageUploadView(APIView):
         async_to_sync(broadcast_to_server)(
             server.id, {"kind": "message", "message": MessageSerializer(message).data}
         )
+        mime_type = (file.content_type or "").split(";")[0].strip()
+        if transcription_ready(mime_type):
+            threading.Thread(target=transcribe_message, args=(message.id, mime_type), daemon=True).start()
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
 

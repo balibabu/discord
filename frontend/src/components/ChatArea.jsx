@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, Check, ChevronUp, CornerUpLeft, FileText, Hash, Link2, Loader2, Menu, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Trash2, Users, X } from 'lucide-react'
+import { ArrowDown, Check, ChevronUp, CornerUpLeft, FileAudio, FileText, Hash, Link2, Loader2, Menu, Mic, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Square, Trash2, Users, X } from 'lucide-react'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
 import { useAuth } from '../stores/auth'
@@ -7,7 +7,7 @@ import { startScreenShare, stopScreenShare } from '../ws/rtc'
 import { sendTyping, sendStopTyping } from '../ws/chat'
 import { copyText } from '../lib/clipboard'
 import { isTouchDevice } from '../lib/platform'
-import { formatBytes, formatTime, formatTimestamp, isImageName } from '../lib/format'
+import { formatBytes, formatTime, formatTimestamp, isAudioName, isImageName } from '../lib/format'
 import DeleteMessageModal from './modals/DeleteMessageModal'
 import ImageViewerModal from './modals/ImageViewerModal'
 import Avatar from './Avatar'
@@ -37,6 +37,9 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   const fileInputRef = useRef(null)
   const [attachments, setAttachments] = useState([])
   const [uploading, setUploading] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [recordSeconds, setRecordSeconds] = useState(0)
+  const recorderRef = useRef(null)
   const [dragOver, setDragOver] = useState(false)
   const [pinnedOpen, setPinnedOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -243,6 +246,51 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   const clearAttachments = (list) => {
     list.forEach((a) => URL.revokeObjectURL(a.preview))
     setAttachments([])
+  }
+
+  useEffect(() => {
+    if (!recording) return
+    const startedAt = Date.now()
+    const timer = setInterval(() => setRecordSeconds(Math.floor((Date.now() - startedAt) / 1000)), 500)
+    return () => clearInterval(timer)
+  }, [recording])
+
+  useEffect(() => {
+    return () => {
+      const recorder = recorderRef.current
+      if (recorder && recorder.state !== 'inactive') recorder.stop()
+    }
+  }, [])
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm'].find((t) => MediaRecorder.isTypeSupported(t)) || ''
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      const chunks = []
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data)
+      }
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop())
+        const type = recorder.mimeType || mimeType || 'audio/webm'
+        const blob = new Blob(chunks, { type })
+        if (blob.size > 0) addFiles([new File([blob], `voice-message-${Date.now()}.webm`, { type })])
+      }
+      recorder.start()
+      recorderRef.current = recorder
+      setRecordSeconds(0)
+      setRecording(true)
+    } catch {
+      setRecording(false)
+    }
+  }
+
+  const stopRecording = () => {
+    const recorder = recorderRef.current
+    recorderRef.current = null
+    if (recorder && recorder.state !== 'inactive') recorder.stop()
+    setRecording(false)
   }
 
   const attachmentsRef = useRef([])
@@ -577,6 +625,21 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
             >
               <Paperclip className="w-5 h-5" />
             </button>
+            <button
+              onClick={recording ? stopRecording : startRecording}
+              disabled={uploading}
+              type="button"
+              title={recording ? 'Stop recording' : 'Record voice message'}
+              className={`p-1 mb-0.5 shrink-0 disabled:opacity-50 transition ${recording ? 'text-red-400 hover:text-red-300' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              {recording ? <Square className="w-5 h-5 fill-current" /> : <Mic className="w-5 h-5" />}
+            </button>
+            {recording && (
+              <span className="flex items-center gap-1.5 text-xs text-red-400 shrink-0 mb-1">
+                <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+                {Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, '0')}
+              </span>
+            )}
             <textarea
               ref={inputRef}
               rows={1}
@@ -654,7 +717,7 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
 
   const handleRowClick = (e) => {
     if (!window.matchMedia('(pointer: coarse)').matches && window.innerWidth >= 768) return
-    if (e.target.closest('a, button, textarea, input')) return
+    if (e.target.closest('a, button, textarea, input, audio')) return
     toggleMenu()
   }
 
@@ -783,7 +846,7 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
                   <Markdown>{message.content}</Markdown>
                 </Suspense>
               </div>
-              {message.attachment && <AttachmentView attachment={message.attachment} />}
+              {message.attachment && <AttachmentView attachment={message.attachment} transcript={message.attachment_transcript} />}
             </div>
             {grouped && message.edited_at && (
               <span className="text-[10px] text-gray-500 shrink-0">(edited)</span>
@@ -915,9 +978,16 @@ function PendingAttachment({ item, onRemove }) {
           className="w-20 h-20 object-cover rounded-md border border-black/30"
         />
       ) : (
-        <div className="w-44 h-20 rounded-md bg-[#2b2d31] border border-black/30 flex flex-col justify-center px-3 gap-0.5 overflow-hidden">
-          <span className="text-xs text-gray-200 truncate">{file.name}</span>
-          <span className="text-[10px] text-gray-400">{formatBytes(file.size)}</span>
+        <div className="w-44 h-20 rounded-md bg-[#2b2d31] border border-black/30 flex items-center gap-2.5 px-3 overflow-hidden">
+          {isAudioName(file.name) ? (
+            <FileAudio className="w-5 h-5 text-[#c9cdfb] shrink-0" />
+          ) : (
+            <FileText className="w-5 h-5 text-[#c9cdfb] shrink-0" />
+          )}
+          <span className="min-w-0 flex flex-col gap-0.5">
+            <span className="text-xs text-gray-200 truncate">{file.name}</span>
+            <span className="text-[10px] text-gray-400">{formatBytes(file.size)}</span>
+          </span>
         </div>
       )}
       <button
@@ -932,7 +1002,7 @@ function PendingAttachment({ item, onRemove }) {
   )
 }
 
-function AttachmentView({ attachment }) {
+function AttachmentView({ attachment, transcript }) {
   const [viewing, setViewing] = useState(false)
 
   if (isImageName(attachment.name)) {
@@ -953,6 +1023,16 @@ function AttachmentView({ attachment }) {
         </button>
         {viewing && <ImageViewerModal attachment={attachment} onClose={() => setViewing(false)} />}
       </>
+    )
+  }
+  if (isAudioName(attachment.name)) {
+    return (
+      <div className="mt-1 w-80 max-w-full">
+        <audio controls src={attachment.url} preload="metadata" className="w-full h-10" />
+        {transcript && (
+          <p className="mt-1.5 text-sm text-gray-300 break-words select-text">{transcript}</p>
+        )}
+      </div>
     )
   }
   return (

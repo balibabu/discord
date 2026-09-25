@@ -427,3 +427,150 @@ class ChannelDeleteTests(TestCase):
         response = self._delete(self.outsider_token, {"password": "pass1234"})
         self.assertEqual(response.status_code, 403)
         self.assertTrue(Channel.objects.filter(id=self.channel.id).exists())
+
+
+class ServerSettingsTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="srvowner", password="pass1234")
+        self.member = User.objects.create_user(username="srvmember", password="pass1234")
+        self.outsider = User.objects.create_user(username="srvoutsider", password="pass1234")
+        self.server = Server.objects.create(name="srv", owner=self.owner)
+        Membership.objects.create(server=self.server, user=self.owner, role=Membership.ROLE_OWNER)
+        Membership.objects.create(server=self.server, user=self.member, role=Membership.ROLE_MEMBER)
+        Channel.objects.create(server=self.server, name="general", type=Channel.TYPE_TEXT)
+        self.owner_token = Token.objects.create(user=self.owner)
+        self.member_token = Token.objects.create(user=self.member)
+        self.outsider_token = Token.objects.create(user=self.outsider)
+        self.url = f"/api/servers/{self.server.id}/"
+        self.media_root = Path(tempfile.mkdtemp(prefix="nexus-test-media-"))
+        media_override = override_settings(MEDIA_ROOT=self.media_root)
+        media_override.enable()
+        self.addCleanup(media_override.disable)
+        self.addCleanup(shutil.rmtree, self.media_root, ignore_errors=True)
+
+    def _client(self, token):
+        from django.test import Client
+
+        client = Client()
+        client.defaults["HTTP_AUTHORIZATION"] = f"Token {token.key}"
+        return client
+
+    def _patch_json(self, token, payload):
+        return self._client(token).patch(
+            self.url, json.dumps(payload), content_type="application/json"
+        )
+
+    def _patch_multipart(self, token, data):
+        return self._client(token).patch(
+            self.url, data=encode_multipart(BOUNDARY, data), content_type=MULTIPART_CONTENT
+        )
+
+    def _delete(self, token, payload):
+        return self._client(token).delete(
+            self.url, json.dumps(payload), content_type="application/json"
+        )
+
+    def test_owner_renames_and_reorders(self):
+        response = self._patch_json(self.owner_token, {"name": "Renamed", "position": 5})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["name"], "Renamed")
+        self.assertEqual(response.data["position"], 5)
+        self.server.refresh_from_db()
+        self.assertEqual(self.server.name, "Renamed")
+        self.assertEqual(self.server.position, 5)
+
+    def test_default_icon_fields(self):
+        response = self._client(self.owner_token).get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["icon_url"], "")
+        self.assertEqual(response.data["position"], 0)
+        self.assertEqual(response.data["icon"], "S")
+
+    def test_rename_requires_name(self):
+        response = self._patch_json(self.owner_token, {"name": "   "})
+        self.assertEqual(response.status_code, 400)
+        self.server.refresh_from_db()
+        self.assertEqual(self.server.name, "srv")
+
+    def test_position_must_be_number(self):
+        response = self._patch_json(self.owner_token, {"position": "abc"})
+        self.assertEqual(response.status_code, 400)
+
+    def test_member_cannot_patch(self):
+        response = self._patch_json(self.member_token, {"name": "Hacked"})
+        self.assertEqual(response.status_code, 403)
+        self.server.refresh_from_db()
+        self.assertEqual(self.server.name, "srv")
+
+    def test_outsider_cannot_patch(self):
+        response = self._patch_json(self.outsider_token, {"name": "Hacked"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_upload_icon_returns_media_url(self):
+        upload = SimpleUploadedFile("icon.png", b"filedata", content_type="image/png")
+        response = self._patch_multipart(self.owner_token, {"icon": upload})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["icon_url"].startswith("/media/server_icons/"))
+        self.server.refresh_from_db()
+        self.assertIn("server_icons/", self.server.icon_image.name)
+
+    def test_upload_replaces_previous_icon(self):
+        first = SimpleUploadedFile("one.png", b"one", content_type="image/png")
+        second = SimpleUploadedFile("two.png", b"two", content_type="image/png")
+        self._patch_multipart(self.owner_token, {"icon": first})
+        self.server.refresh_from_db()
+        old_name = self.server.icon_image.name
+        response = self._patch_multipart(self.owner_token, {"icon": second})
+        self.assertEqual(response.status_code, 200)
+        self.server.refresh_from_db()
+        self.assertNotEqual(self.server.icon_image.name, old_name)
+        self.assertFalse((self.media_root / old_name).exists())
+
+    def test_remove_icon(self):
+        upload = SimpleUploadedFile("icon.png", b"filedata", content_type="image/png")
+        self._patch_multipart(self.owner_token, {"icon": upload})
+        response = self._patch_json(self.owner_token, {"icon": ""})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["icon_url"], "")
+        self.server.refresh_from_db()
+        self.assertFalse(self.server.icon_image)
+
+    def test_upload_rejects_non_image(self):
+        upload = SimpleUploadedFile("notes.txt", b"hello", content_type="text/plain")
+        response = self._patch_multipart(self.owner_token, {"icon": upload})
+        self.assertEqual(response.status_code, 400)
+        self.server.refresh_from_db()
+        self.assertFalse(self.server.icon_image)
+
+    def test_upload_rejects_oversized_image(self):
+        upload = SimpleUploadedFile("big.png", b"x" * (settings.MAX_AVATAR_SIZE + 1), content_type="image/png")
+        response = self._patch_multipart(self.owner_token, {"icon": upload})
+        self.assertEqual(response.status_code, 413)
+        self.server.refresh_from_db()
+        self.assertFalse(self.server.icon_image)
+
+    def test_owner_deletes_server_with_password(self):
+        response = self._delete(self.owner_token, {"password": "pass1234"})
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Server.objects.filter(id=self.server.id).exists())
+        self.assertFalse(Channel.objects.exists())
+
+    def test_delete_wrong_password_rejected(self):
+        response = self._delete(self.owner_token, {"password": "wrongpass"})
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Server.objects.filter(id=self.server.id).exists())
+
+    def test_delete_missing_password_rejected(self):
+        response = self._delete(self.owner_token, {})
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(Server.objects.filter(id=self.server.id).exists())
+
+    def test_member_cannot_delete(self):
+        response = self._delete(self.member_token, {"password": "pass1234"})
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Server.objects.filter(id=self.server.id).exists())
+
+    def test_outsider_cannot_delete(self):
+        response = self._delete(self.outsider_token, {"password": "pass1234"})
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Server.objects.filter(id=self.server.id).exists())

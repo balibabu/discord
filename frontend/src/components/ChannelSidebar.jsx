@@ -5,7 +5,7 @@ import { useVoice } from '../stores/voice'
 import { joinVoice, leaveVoice, toggleMute, toggleDeafen } from '../ws/rtc'
 import Avatar from './Avatar'
 
-export default function ChannelSidebar({ onAddChannel, onChannelSettings, onOpenProfile, onCloseDrawer }) {
+export default function ChannelSidebar({ onAddChannel, onChannelSettings, onServerSettings, onOpenProfile, onCloseDrawer }) {
   const { serverDetail, activeServerId, activeChannelId, selectChannel } = useApp()
   const user = useAuth((s) => s.user)
   const voice = useVoice()
@@ -33,14 +33,13 @@ export default function ChannelSidebar({ onAddChannel, onChannelSettings, onOpen
   return (
     <aside className="w-60 bg-[#2b2d31] flex flex-col h-full shrink-0 border-r border-[#1f2023]/40">
       <header
-        className="h-12 px-4 border-b border-[#1f2023] flex items-center justify-between font-semibold text-white cursor-default shadow-sm"
-        onClick={onCloseDrawer}
+        className="h-12 px-4 border-b border-[#1f2023] flex items-center justify-between font-semibold text-white cursor-pointer shadow-sm hover:bg-[#35373c]/60 transition"
+        onClick={() => onServerSettings?.()}
       >
         <span className="truncate font-bold tracking-wide flex items-center gap-2">
           <Menu className="md:hidden w-4 h-4 text-gray-400" />
           {serverDetail.name}
         </span>
-        <ChevronDown className="w-5 h-5 text-gray-300" />
       </header>
 
       <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4">

@@ -53,7 +53,7 @@ class LoginView(APIView):
         return Response(token_response(user))
 
 
-ALLOWED_AVATAR_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 
 class MeView(APIView):
@@ -63,7 +63,7 @@ class MeView(APIView):
     def patch(self, request):
         avatar = request.FILES.get("avatar")
         if avatar is not None:
-            if avatar.content_type not in ALLOWED_AVATAR_TYPES:
+            if avatar.content_type not in ALLOWED_IMAGE_TYPES:
                 return Response({"avatar": ["Image must be a PNG, JPEG, GIF or WebP file."]}, status=status.HTTP_400_BAD_REQUEST)
             if avatar.size > settings.MAX_AVATAR_SIZE:
                 return Response({"avatar": ["Avatar exceeds the 2 MB limit."]}, status=413)
@@ -128,6 +128,62 @@ class ServerDetailView(APIView):
         if membership is None:
             return Response({"error": "Not a member of this server."}, status=status.HTTP_403_FORBIDDEN)
         return Response(ServerDetailSerializer(server).data)
+
+    def patch(self, request, server_id):
+        server, membership = get_membership_or_none(request.user, server_id)
+        if membership is None:
+            return Response({"error": "Not a member of this server."}, status=status.HTTP_403_FORBIDDEN)
+        if server.owner_id != request.user.id:
+            return Response({"error": "Only the server admin can manage the server."}, status=status.HTTP_403_FORBIDDEN)
+        icon = request.FILES.get("icon")
+        if icon is not None:
+            if icon.content_type not in ALLOWED_IMAGE_TYPES:
+                return Response({"icon": ["Icon must be a PNG, JPEG, GIF or WebP file."]}, status=status.HTTP_400_BAD_REQUEST)
+            if icon.size > settings.MAX_AVATAR_SIZE:
+                return Response({"icon": ["Icon exceeds the 2 MB limit."]}, status=413)
+            if server.icon_image:
+                server.icon_image.delete(save=False)
+            server.icon_image = icon
+        elif request.data.get("icon") == "":
+            if server.icon_image:
+                server.icon_image.delete(save=False)
+                server.icon_image = None
+        name = request.data.get("name")
+        if name is not None:
+            name = name.strip()
+            if not name:
+                return Response({"error": "Server name is required."}, status=status.HTTP_400_BAD_REQUEST)
+            server.name = name
+        position = request.data.get("position")
+        if position is not None:
+            try:
+                server.position = max(0, int(position))
+            except (TypeError, ValueError):
+                return Response({"error": "Position must be a number."}, status=status.HTTP_400_BAD_REQUEST)
+        server.save()
+        async_to_sync(broadcast_to_server)(
+            server.id, {"kind": "server-updated", "server": ServerSerializer(server).data},
+        )
+        return Response(ServerDetailSerializer(server).data)
+
+    def delete(self, request, server_id):
+        server, membership = get_membership_or_none(request.user, server_id)
+        if membership is None:
+            return Response({"error": "Not a member of this server."}, status=status.HTTP_403_FORBIDDEN)
+        if server.owner_id != request.user.id:
+            return Response({"error": "Only the server admin can delete the server."}, status=status.HTTP_403_FORBIDDEN)
+        password = request.data.get("password")
+        if not password:
+            return Response({"error": "Password is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not request.user.check_password(password):
+            return Response({"error": "Incorrect password."}, status=status.HTTP_403_FORBIDDEN)
+        if server.icon_image:
+            server.icon_image.delete(save=False)
+        server.delete()
+        async_to_sync(broadcast_to_server)(
+            server_id, {"kind": "server-deleted", "server_id": server_id},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ChannelCreateView(APIView):

@@ -64,6 +64,12 @@ function handleEvent(serverId, data) {
     case 'channel-deleted':
       app.applyChannelDelete(serverId, data.channel_id)
       break
+    case 'server-updated':
+      app.applyServerUpdate(data.server)
+      break
+    case 'server-deleted':
+      app.applyServerDelete(data.server_id)
+      break
     default:
       break
   }

@@ -28,6 +28,7 @@ export const useApp = create((set, get) => ({
   },
 
   selectServer: async (serverId, preferredChannelId) => {
+    if (get().serverDetail && String(get().activeServerId) === String(serverId)) return
     set({ activeServerId: serverId, serverDetail: null, activeChannelId: null, activeMessageId: null })
     connectChat(serverId)
     connectRtc(serverId)
@@ -297,6 +298,46 @@ export const useApp = create((set, get) => ({
     const { data } = await api.post('/servers/', { name })
     await get().loadServers()
     await get().selectServer(data.id)
+  },
+
+  updateServer: async (serverId, payload) => {
+    const { data } = await api.patch(`/servers/${serverId}/`, payload)
+    await get().loadServers()
+    if (String(get().activeServerId) === String(serverId)) {
+      await get().refreshMembers()
+    }
+    return data
+  },
+
+  applyServerUpdate: (server) => {
+    set((s) => {
+      const servers = s.servers
+        .map((x) => (String(x.id) === String(server.id) ? { ...x, ...server } : x))
+        .slice()
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name))
+      const serverDetail =
+        s.serverDetail && String(s.serverDetail.id) === String(server.id)
+          ? { ...s.serverDetail, ...server }
+          : s.serverDetail
+      return { servers, serverDetail }
+    })
+  },
+
+  applyServerDelete: (serverId) => {
+    set((s) => ({ servers: s.servers.filter((x) => String(x.id) !== String(serverId)) }))
+    const state = get()
+    if (String(state.activeServerId) !== String(serverId)) return
+    const next = state.servers[0]
+    if (next) {
+      state.selectServer(next.id)
+    } else {
+      set({ activeServerId: null, serverDetail: null, activeChannelId: null, activeMessageId: null })
+    }
+  },
+
+  deleteServer: async (serverId, password) => {
+    await api.delete(`/servers/${serverId}/`, { data: { password } })
+    get().applyServerDelete(serverId)
   },
 
   createChannel: async (name) => {

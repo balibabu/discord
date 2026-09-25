@@ -17,10 +17,19 @@ export default function ServerRail({ onAddServer, onLogout }) {
             >
               <div className={`w-1 ${isActive ? 'h-10' : 'h-0 group-hover:h-5'} bg-white rounded-r-full absolute left-0 transition-all duration-200`} />
               <div
-                className={`w-12 h-12 ${isActive ? 'rounded-2xl bg-[#5865f2] text-white' : 'rounded-3xl hover:rounded-2xl bg-[#313338] hover:bg-[#5865f2] text-gray-200 hover:text-white'} flex items-center justify-center font-bold cursor-pointer transition-all duration-200 shadow-md text-sm`}
+                className={`w-12 h-12 ${isActive ? 'rounded-2xl bg-[#5865f2] text-white' : 'rounded-3xl hover:rounded-2xl bg-[#313338] hover:bg-[#5865f2] text-gray-200 hover:text-white'} flex items-center justify-center font-bold cursor-pointer transition-all duration-200 shadow-md text-sm overflow-hidden`}
                 title={server.name}
               >
-                {server.icon}
+                {server.icon_url ? (
+                  <img
+                    src={server.icon_url}
+                    alt={server.name}
+                    className="w-full h-full rounded-[inherit] object-cover"
+                    draggable="false"
+                  />
+                ) : (
+                  server.icon
+                )}
               </div>
             </button>
           )

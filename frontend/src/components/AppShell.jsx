@@ -16,6 +16,7 @@ import CreateChannelModal from './modals/CreateChannelModal'
 import AddMemberModal from './modals/AddMemberModal'
 import ChannelSettingsModal from './modals/ChannelSettingsModal'
 import ProfileSettingsModal from './modals/ProfileSettingsModal'
+import ServerSettingsModal from './modals/ServerSettingsModal'
 
 export default function AppShell() {
   const { serversLoaded, serverDetail, activeServerId, activeChannelId, activeMessageId, loadServers, selectServer, selectChannel, jumpToMessage, clearActiveMessage, reset } = useApp()
@@ -124,6 +125,7 @@ export default function AppShell() {
         <ChannelSidebar
           onAddChannel={() => setModal('channel')}
           onChannelSettings={(channel) => setModal({ type: 'channel-settings', channel })}
+          onServerSettings={() => setModal('server-settings')}
           onOpenProfile={() => setModal('profile')}
           onCloseDrawer={() => setLeftOpen(false)}
         />
@@ -164,6 +166,7 @@ export default function AppShell() {
       {modal?.type === 'channel-settings' && (
         <ChannelSettingsModal channel={modal.channel} onClose={() => setModal(null)} />
       )}
+      {modal === 'server-settings' && <ServerSettingsModal onClose={() => setModal(null)} />}
     </div>
   )
 }

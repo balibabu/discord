@@ -84,15 +84,21 @@ class MembershipSerializer(serializers.ModelSerializer):
 
 class ServerSerializer(serializers.ModelSerializer):
     icon = serializers.SerializerMethodField()
+    icon_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Server
-        fields = ["id", "name", "icon", "created_at"]
+        fields = ["id", "name", "icon", "icon_url", "position", "created_at"]
 
     def get_icon(self, obj):
         words = obj.name.split()
         initials = "".join(w[0] for w in words if w[0].isalpha())[:3]
         return (initials or obj.name[:3]).upper()
+
+    def get_icon_url(self, obj):
+        if obj.icon_image:
+            return obj.icon_image.url
+        return ""
 
 
 class ServerDetailSerializer(ServerSerializer):
@@ -100,7 +106,7 @@ class ServerDetailSerializer(ServerSerializer):
     members = serializers.SerializerMethodField()
 
     class Meta(ServerSerializer.Meta):
-        fields = ["id", "name", "icon", "created_at", "channels", "members"]
+        fields = ["id", "name", "icon", "icon_url", "position", "created_at", "channels", "members"]
 
     def get_members(self, obj):
         memberships = obj.memberships.select_related("user")

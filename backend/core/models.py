@@ -18,10 +18,12 @@ class User(AbstractUser):
 class Server(models.Model):
     name = models.CharField(max_length=100)
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="owned_servers")
+    icon_image = models.FileField(upload_to="server_icons/%Y/%m/%d/", blank=True, null=True)
+    position = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["name"]
+        ordering = ["position", "name"]
 
     def __str__(self):
         return self.name

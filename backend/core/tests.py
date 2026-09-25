@@ -1,6 +1,7 @@
 import json
 import shutil
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
@@ -10,6 +11,7 @@ from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
+from django.utils import timezone
 from rest_framework.authtoken.models import Token
 
 from config.asgi import application
@@ -574,3 +576,73 @@ class ServerSettingsTests(TestCase):
         response = self._delete(self.outsider_token, {"password": "pass1234"})
         self.assertEqual(response.status_code, 403)
         self.assertTrue(Server.objects.filter(id=self.server.id).exists())
+
+
+class ServerBootstrapTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="bootowner", password="pass1234")
+        self.outsider = User.objects.create_user(username="bootoutsider", password="pass1234")
+        self.server = Server.objects.create(name="bootsrv", owner=self.owner)
+        Membership.objects.create(server=self.server, user=self.owner, role=Membership.ROLE_OWNER)
+        self.text_channel = Channel.objects.create(
+            server=self.server, name="general", type=Channel.TYPE_TEXT
+        )
+        self.voice_channel = Channel.objects.create(
+            server=self.server, name="talk", type=Channel.TYPE_VOICE
+        )
+        self.owner_token = Token.objects.create(user=self.owner)
+        self.outsider_token = Token.objects.create(user=self.outsider)
+        self.url = f"/api/servers/{self.server.id}/"
+
+    def _client(self, token):
+        from django.test import Client
+
+        client = Client()
+        client.defaults["HTTP_AUTHORIZATION"] = f"Token {token.key}"
+        return client
+
+    def _message(self, channel, content, pinned=False):
+        message = Message.objects.create(
+            channel=channel, author=self.owner, content=content, pinned=pinned
+        )
+        Message.objects.filter(id=message.id).update(
+            created_at=timezone.now() + timedelta(seconds=message.id)
+        )
+        return Message.objects.get(id=message.id)
+
+    def test_detail_includes_channel_messages(self):
+        first = self._message(self.text_channel, "first")
+        second = self._message(self.text_channel, "second")
+        response = self._client(self.owner_token).get(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(
+            [m["id"] for m in data["messages"][str(self.text_channel.id)]],
+            [first.id, second.id],
+        )
+        self.assertFalse(data["has_more"][str(self.text_channel.id)])
+        self.assertNotIn(str(self.voice_channel.id), data["messages"])
+
+    def test_detail_caps_at_50_with_has_more(self):
+        for i in range(51):
+            self._message(self.text_channel, f"m{i}")
+        response = self._client(self.owner_token).get(self.url)
+        data = response.json()
+        messages = data["messages"][str(self.text_channel.id)]
+        self.assertEqual(len(messages), 50)
+        self.assertEqual(messages[0]["content"], "m1")
+        self.assertEqual(messages[-1]["content"], "m50")
+        self.assertTrue(data["has_more"][str(self.text_channel.id)])
+
+    def test_detail_includes_pinned(self):
+        self._message(self.text_channel, "plain")
+        pinned = self._message(self.text_channel, "pinned", pinned=True)
+        response = self._client(self.owner_token).get(self.url)
+        data = response.json()
+        self.assertEqual(
+            [m["id"] for m in data["pinned"][str(self.text_channel.id)]], [pinned.id]
+        )
+
+    def test_outsider_rejected(self):
+        response = self._client(self.outsider_token).get(self.url)
+        self.assertEqual(response.status_code, 403)

@@ -127,7 +127,22 @@ class ServerDetailView(APIView):
         server, membership = get_membership_or_none(request.user, server_id)
         if membership is None:
             return Response({"error": "Not a member of this server."}, status=status.HTTP_403_FORBIDDEN)
-        return Response(ServerDetailSerializer(server).data)
+        data = ServerDetailSerializer(server).data
+        messages = {}
+        has_more = {}
+        pinned = {}
+        for channel in server.channels.filter(type=Channel.TYPE_TEXT):
+            qs = channel.messages.select_related("author", "reply_to__author")
+            latest = list(qs.all()[:50])
+            messages[str(channel.id)] = MessageSerializer(list(reversed(latest)), many=True).data
+            has_more[str(channel.id)] = len(latest) == 50
+            pinned[str(channel.id)] = MessageSerializer(
+                list(reversed(qs.filter(pinned=True).all())), many=True
+            ).data
+        data["messages"] = messages
+        data["has_more"] = has_more
+        data["pinned"] = pinned
+        return Response(data)
 
     def patch(self, request, server_id):
         server, membership = get_membership_or_none(request.user, server_id)

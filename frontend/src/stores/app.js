@@ -40,8 +40,16 @@ export const useApp = create((set, get) => ({
       ? textChannels.find((c) => String(c.id) === String(preferredChannelId))
       : null
     const next = preferred || textChannels[0]
-    set({ serverDetail: data, activeChannelId: next ? next.id : null })
-    textChannels.forEach((c) => get().loadMessages(c.id))
+    const hasNewer = {}
+    for (const id of Object.keys(data.messages || {})) hasNewer[id] = false
+    set((s) => ({
+      serverDetail: data,
+      activeChannelId: next ? next.id : null,
+      messages: { ...s.messages, ...data.messages },
+      hasMore: { ...s.hasMore, ...data.has_more },
+      hasNewer: { ...s.hasNewer, ...hasNewer },
+      pinnedMessages: { ...s.pinnedMessages, ...data.pinned },
+    }))
   },
 
   selectChannel: (channelId) => {

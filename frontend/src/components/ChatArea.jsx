@@ -563,7 +563,7 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
                   className="pointer-events-auto flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-[#2b2d31] text-gray-300 hover:bg-[#5865f2] hover:text-white disabled:opacity-50 transition"
                 >
                   {channelLoadingNewer ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                  Load newer messages
+                  Load more
                 </button>
                 <button
                   onClick={handleJumpToLatest}

@@ -16,6 +16,7 @@ export const useApp = create((set, get) => ({
   hasMore: {},
   hasNewer: {},
   loadingOlder: {},
+  loadingNewer: {},
   pinnedMessages: {},
   onlineByServer: {},
   typingByChannel: {},
@@ -85,6 +86,24 @@ export const useApp = create((set, get) => ({
       }))
     } finally {
       set((s) => ({ loadingOlder: { ...s.loadingOlder, [channelId]: false } }))
+    }
+  },
+
+  loadNewerMessages: async (channelId) => {
+    const state = get()
+    const list = state.messages[channelId]
+    if (!list || list.length === 0 || !state.hasNewer[channelId] || state.loadingNewer[channelId]) return
+    set((s) => ({ loadingNewer: { ...s.loadingNewer, [channelId]: true } }))
+    try {
+      const { data } = await api.get(
+        `/servers/${state.activeServerId}/channels/${channelId}/messages/?after=${list[list.length - 1].id}`
+      )
+      set((s) => ({
+        messages: { ...s.messages, [channelId]: [...s.messages[channelId], ...data.messages] },
+        hasNewer: { ...s.hasNewer, [channelId]: data.has_more },
+      }))
+    } finally {
+      set((s) => ({ loadingNewer: { ...s.loadingNewer, [channelId]: false } }))
     }
   },
 

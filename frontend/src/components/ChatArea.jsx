@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, Check, ChevronUp, CornerUpLeft, FileAudio, FileText, Hash, Link2, Loader2, Menu, Mic, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Square, Trash2, Users, X } from 'lucide-react'
+import { ArrowDown, Check, ChevronDown, ChevronUp, CornerUpLeft, FileAudio, FileText, Hash, Link2, Loader2, Menu, Mic, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Square, Trash2, Users, X } from 'lucide-react'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
 import { useAuth } from '../stores/auth'
@@ -20,7 +20,7 @@ const TYPING_TIMEOUT_MS = 6000
 const TYPING_THROTTLE_MS = 2500
 
 export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
-  const { serverDetail, activeChannelId, messages, hasMore, hasNewer, loadingOlder, pinnedMessages, typingByChannel, clearTyping, sendMessage, deleteMessage, loadOlderMessages, togglePinMessage, searchMessages, jumpToMessage, jumpToLatest, jumpTargetId, clearJumpTarget } = useApp()
+  const { serverDetail, activeChannelId, messages, hasMore, hasNewer, loadingOlder, loadingNewer, pinnedMessages, typingByChannel, clearTyping, sendMessage, deleteMessage, loadOlderMessages, loadNewerMessages, togglePinMessage, searchMessages, jumpToMessage, jumpToLatest, jumpTargetId, clearJumpTarget } = useApp()
   const voice = useVoice()
   const me = useAuth((s) => s.user)
   const [deleting, setDeleting] = useState(null)
@@ -31,6 +31,7 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   const channelHasMore = !!hasMore[activeChannelId]
   const channelHasNewer = !!hasNewer[activeChannelId]
   const channelLoadingOlder = !!loadingOlder[activeChannelId]
+  const channelLoadingNewer = !!loadingNewer[activeChannelId]
   const channelPinned = pinnedMessages[activeChannelId] || []
   const inputRef = useRef(null)
   const scrollRef = useRef(null)
@@ -220,6 +221,11 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   const handleJumpToLatest = async () => {
     forceBottom.current = true
     await jumpToLatest(activeChannelId)
+  }
+
+  const handleLoadNewer = async () => {
+    atBottomRef.current = false
+    await loadNewerMessages(activeChannelId)
   }
 
   const addFiles = (files) => {
@@ -550,7 +556,15 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
               </div>
             ))}
             {channelHasNewer && (
-              <div className="sticky bottom-0 flex justify-center pt-2 -mb-2 bg-gradient-to-t from-[#313338] via-[#313338] to-transparent pointer-events-none">
+              <div className="sticky bottom-0 flex justify-center gap-2 pt-2 -mb-2 bg-gradient-to-t from-[#313338] via-[#313338] to-transparent pointer-events-none">
+                <button
+                  onClick={handleLoadNewer}
+                  disabled={channelLoadingNewer}
+                  className="pointer-events-auto flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-[#2b2d31] text-gray-300 hover:bg-[#5865f2] hover:text-white disabled:opacity-50 transition"
+                >
+                  {channelLoadingNewer ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  Load newer messages
+                </button>
                 <button
                   onClick={handleJumpToLatest}
                   className="pointer-events-auto flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-[#5865f2] text-white hover:bg-[#4752c4] shadow-lg transition"

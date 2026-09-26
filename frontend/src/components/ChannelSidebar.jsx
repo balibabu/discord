@@ -6,9 +6,10 @@ import { joinVoice, leaveVoice, toggleMute, toggleDeafen } from '../ws/rtc'
 import Avatar from './Avatar'
 
 export default function ChannelSidebar({ onAddChannel, onChannelSettings, onServerSettings, onOpenProfile, onCloseDrawer }) {
-  const { serverDetail, activeServerId, activeChannelId, selectChannel } = useApp()
+  const { serverDetail, activeServerId, activeChannelId, selectChannel, onlineByServer } = useApp()
   const user = useAuth((s) => s.user)
   const voice = useVoice()
+  const online = (onlineByServer[activeServerId] || []).includes(user?.id)
 
   if (!serverDetail) {
     return (
@@ -162,7 +163,7 @@ export default function ChannelSidebar({ onAddChannel, onChannelSettings, onServ
           <Avatar
             user={user}
             statusDot={
-              <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#232428] ${voice.inVoice ? (voice.muted ? 'bg-red-500' : 'bg-[#23a55a]') : 'bg-gray-500'}`} />
+              <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#232428] ${voice.inVoice && voice.muted ? 'bg-red-500' : online ? 'bg-[#23a55a]' : 'bg-gray-500'}`} />
             }
             onClick={onOpenProfile}
           />

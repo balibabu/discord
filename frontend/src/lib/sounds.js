@@ -1,3 +1,6 @@
+import sendSound from '../assets/sounds/send.mp3'
+import incomingSound from '../assets/sounds/incoming.mp3'
+
 let ctx = null
 
 function audio() {
@@ -27,13 +30,18 @@ function tone({ freq, endFreq, duration, delay = 0, type = 'sine', gain = 0.05 }
   osc.stop(start + duration + 0.05)
 }
 
+function playFile(src, volume = 0.6) {
+  const audio = new Audio(src)
+  audio.volume = volume
+  audio.play().catch(() => {})
+}
+
 export function playSend() {
-  tone({ freq: 720, endFreq: 940, duration: 0.09, type: 'triangle' })
+  playFile(sendSound)
 }
 
 export function playReceive() {
-  tone({ freq: 620, duration: 0.07, type: 'triangle' })
-  tone({ freq: 820, duration: 0.09, delay: 0.08, type: 'triangle' })
+  playFile(incomingSound)
 }
 
 export function playJoinVoice() {

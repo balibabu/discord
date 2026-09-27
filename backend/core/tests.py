@@ -646,3 +646,52 @@ class ServerBootstrapTests(TestCase):
     def test_outsider_rejected(self):
         response = self._client(self.outsider_token).get(self.url)
         self.assertEqual(response.status_code, 403)
+
+
+class MessagePaginationTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="pgowner", password="pass1234")
+        self.server = Server.objects.create(name="srv", owner=self.owner)
+        Membership.objects.create(server=self.server, user=self.owner, role=Membership.ROLE_OWNER)
+        self.channel = Channel.objects.create(server=self.server, name="general", type=Channel.TYPE_TEXT)
+        self.token = Token.objects.create(user=self.owner)
+        self.url = f"/api/servers/{self.server.id}/channels/{self.channel.id}/messages/"
+
+    def _client(self):
+        from django.test import Client
+
+        client = Client()
+        client.defaults["HTTP_AUTHORIZATION"] = f"Token {self.token.key}"
+        return client
+
+    def _message(self, content):
+        message = Message.objects.create(channel=self.channel, author=self.owner, content=content)
+        Message.objects.filter(id=message.id).update(
+            created_at=timezone.now() + timedelta(seconds=message.id)
+        )
+        return Message.objects.get(id=message.id)
+
+    def test_after_returns_page_following_cursor(self):
+        created = [self._message(f"m{i}") for i in range(120)]
+        data = self._client().get(self.url, {"after": created[9].id}).json()
+        self.assertEqual([m["id"] for m in data["messages"]], [m.id for m in created[10:60]])
+        self.assertTrue(data["has_more"])
+
+    def test_after_chains_to_next_page(self):
+        created = [self._message(f"m{i}") for i in range(120)]
+        first = self._client().get(self.url, {"after": created[9].id}).json()
+        data = self._client().get(self.url, {"after": first["messages"][-1]["id"]}).json()
+        self.assertEqual([m["id"] for m in data["messages"]], [m.id for m in created[60:110]])
+        self.assertTrue(data["has_more"])
+
+    def test_after_returns_remaining_without_more(self):
+        created = [self._message(f"m{i}") for i in range(15)]
+        data = self._client().get(self.url, {"after": created[9].id}).json()
+        self.assertEqual([m["id"] for m in data["messages"]], [m.id for m in created[10:]])
+        self.assertFalse(data["has_more"])
+
+    def test_before_returns_page_ending_at_cursor(self):
+        created = [self._message(f"m{i}") for i in range(120)]
+        data = self._client().get(self.url, {"before": created[109].id}).json()
+        self.assertEqual([m["id"] for m in data["messages"]], [m.id for m in created[59:109]])
+        self.assertTrue(data["has_more"])

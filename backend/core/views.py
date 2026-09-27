@@ -291,7 +291,9 @@ class MessageListView(APIView):
                 after_id = int(after)
             except (TypeError, ValueError):
                 return Response({"error": "Invalid after parameter."}, status=status.HTTP_400_BAD_REQUEST)
-            qs = qs.filter(id__gt=after_id)
+            qs = qs.filter(id__gt=after_id).order_by("created_at", "id")
+            messages = list(qs.all()[:50])
+            return Response({"messages": MessageSerializer(messages, many=True).data, "has_more": len(messages) == 50})
         messages = list(qs.all()[:50])
         has_more = len(messages) == 50
         return Response({"messages": MessageSerializer(list(reversed(messages)), many=True).data, "has_more": has_more})

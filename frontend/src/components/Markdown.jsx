@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useNavigate } from 'react-router-dom'
+import { Check, Copy } from 'lucide-react'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import rehypeHighlight from 'rehype-highlight'
+import { copyText } from '../lib/clipboard'
 import 'highlight.js/styles/github-dark.css'
 
 const SPOILER_RE = /\|\|([\s\S]+?)\|\|/g
@@ -55,6 +57,34 @@ function Spoiler({ children }) {
   )
 }
 
+function CodeBlock({ children }) {
+  const preRef = useRef(null)
+  const timerRef = useRef(null)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => () => clearTimeout(timerRef.current), [])
+
+  const copy = async () => {
+    await copyText((preRef.current?.querySelector('code')?.textContent ?? '').trimEnd())
+    setCopied(true)
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => setCopied(false), 1500)
+  }
+
+  return (
+    <div className="relative group/code">
+      <button
+        onClick={copy}
+        title={copied ? 'Copied!' : 'Copy code'}
+        className={`absolute top-2 right-2 z-10 p-1 rounded bg-[#2b2d31] hover:bg-[#5865f2] transition opacity-100 md:opacity-0 md:group-hover/code:opacity-100 ${copied ? 'text-[#23a55a]' : 'text-gray-300 hover:text-white'}`}
+      >
+        {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+      </button>
+      <pre ref={preRef}>{children}</pre>
+    </div>
+  )
+}
+
 export default function Markdown({ children }) {
   const navigate = useNavigate()
 
@@ -88,6 +118,9 @@ export default function Markdown({ children }) {
           {label}
         </a>
       )
+    },
+    pre({ node, children }) {
+      return <CodeBlock>{children}</CodeBlock>
     },
     span({ node, className, children, ...props }) {
       if (className && String(className).includes('spoiler')) return <Spoiler>{children}</Spoiler>

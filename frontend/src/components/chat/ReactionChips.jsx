@@ -23,7 +23,7 @@ export default function ReactionChips({ message }) {
                 : 'bg-[#2b2d31] border-transparent hover:border-[#5865f2]/60'
             }`}
           >
-            <span className="text-sm leading-none">{reaction.emoji}</span>
+            <span className="text-lg leading-none">{reaction.emoji}</span>
             <span className={`font-semibold tabular-nums ${mine ? 'text-[#c9cdfb]' : 'text-gray-300'}`}>
               {reaction.users.length}
             </span>

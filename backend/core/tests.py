@@ -15,7 +15,8 @@ from django.utils import timezone
 from rest_framework.authtoken.models import Token
 
 from config.asgi import application
-from .models import Channel, Membership, Message, Server
+from .consumers import ChatConsumer
+from .models import Channel, Membership, Message, Reaction, Server
 from .serializers import MessageSerializer
 
 User = get_user_model()
@@ -171,6 +172,70 @@ class MessageReplyTests(TransactionTestCase):
         self.assertIsNone(reply.reply_to)
         serialized = await database_sync_to_async(lambda: MessageSerializer(reply).data)()
         self.assertIsNone(serialized["reply_to"])
+        await comm.disconnect()
+
+
+class MessageReactionTests(TransactionTestCase):
+    async def _connect(self, server, user):
+        token = await database_sync_to_async(lambda: Token.objects.create(user=user).key)()
+        comm = WebsocketCommunicator(application, f"/ws/chat/{server.id}/?token={token}")
+        await comm.connect()
+        await drain_events(comm)
+        return comm
+
+    async def test_react_toggles_and_groups(self):
+        owner = await database_sync_to_async(User.objects.create_user)(username="reactowner", password="pass1234")
+        member = await database_sync_to_async(User.objects.create_user)(username="reactmember", password="pass1234")
+        server = await database_sync_to_async(Server.objects.create)(name="srv", owner=owner)
+        await database_sync_to_async(Membership.objects.create)(server=server, user=owner, role=Membership.ROLE_OWNER)
+        await database_sync_to_async(Membership.objects.create)(server=server, user=member, role=Membership.ROLE_MEMBER)
+        channel = await database_sync_to_async(Channel.objects.create)(server=server, name="general", type=Channel.TYPE_TEXT)
+        message = await database_sync_to_async(Message.objects.create)(
+            channel=channel, author=owner, content="react to me"
+        )
+        owner_comm = ChatConsumer()
+        owner_comm.user = owner
+        owner_comm.server_id = server.id
+        member_comm = ChatConsumer()
+        member_comm.user = member
+        member_comm.server_id = server.id
+
+        data = await owner_comm.react_message_db(message.id, "👍")
+        self.assertEqual(
+            data["reactions"],
+            [{"emoji": "👍", "users": [{"id": owner.id, "username": "reactowner"}]}],
+        )
+
+        data = await member_comm.react_message_db(message.id, "👍")
+        self.assertEqual(len(data["reactions"][0]["users"]), 2)
+
+        data = await member_comm.react_message_db(message.id, "👍")
+        self.assertEqual(
+            data["reactions"],
+            [{"emoji": "👍", "users": [{"id": owner.id, "username": "reactowner"}]}],
+        )
+
+        data = await owner_comm.react_message_db(message.id, "🔥")
+        self.assertEqual(len(data["reactions"]), 2)
+
+        self.assertIsNone(await owner_comm.react_message_db(999999, "👍"))
+        count = await database_sync_to_async(lambda: Reaction.objects.filter(message_id=message.id).count())()
+        self.assertEqual(count, 2)
+
+    async def test_react_ignores_bad_payloads(self):
+        owner = await database_sync_to_async(User.objects.create_user)(username="badreact", password="pass1234")
+        server = await database_sync_to_async(Server.objects.create)(name="srv", owner=owner)
+        await database_sync_to_async(Membership.objects.create)(server=server, user=owner, role=Membership.ROLE_OWNER)
+        channel = await database_sync_to_async(Channel.objects.create)(server=server, name="general", type=Channel.TYPE_TEXT)
+        message = await database_sync_to_async(Message.objects.create)(channel=channel, author=owner, content="target")
+        comm = await self._connect(server, owner)
+
+        await comm.send_json_to({"type": "react-message", "message_id": message.id, "emoji": "   "})
+        await comm.send_json_to({"type": "react-message", "message_id": 999999, "emoji": "🔥"})
+        self.assertTrue(await comm.receive_nothing(timeout=0.3))
+
+        count = await database_sync_to_async(lambda: Reaction.objects.count())()
+        self.assertEqual(count, 0)
         await comm.disconnect()
 
 

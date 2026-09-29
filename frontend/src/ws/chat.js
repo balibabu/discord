@@ -55,6 +55,9 @@ function handleEvent(serverId, data) {
     case 'message-pinned':
       app.updateMessage(data.message)
       break
+    case 'message-reaction':
+      app.updateMessage(data.message)
+      break
     case 'member-added':
       if (String(serverId) === String(useApp.getState().activeServerId)) app.refreshMembers()
       break
@@ -121,6 +124,11 @@ export function deleteChatMessage(messageId) {
 export function pinChatMessage(messageId, pinned) {
   if (!messageId) return
   sendTo(useApp.getState().activeServerId, { type: 'pin-message', message_id: messageId, pinned })
+}
+
+export function toggleChatReaction(messageId, emoji) {
+  if (!messageId || !emoji) return
+  sendTo(useApp.getState().activeServerId, { type: 'react-message', message_id: messageId, emoji })
 }
 
 export function sendTyping(channelId) {

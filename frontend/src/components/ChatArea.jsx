@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, Check, ChevronDown, ChevronUp, CornerUpLeft, FileAudio, FileText, Hash, Link2, Loader2, Menu, Mic, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Square, Trash2, Users, X } from 'lucide-react'
+import { ArrowDown, Check, ChevronDown, ChevronUp, CornerUpLeft, FileAudio, FileText, Hash, Link2, Loader2, Menu, Mic, MonitorOff, MonitorUp, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Smile, SmilePlus, Square, Trash2, Users, X } from 'lucide-react'
 import { useApp } from '../stores/app'
 import { useVoice } from '../stores/voice'
 import { useAuth } from '../stores/auth'
@@ -10,6 +10,7 @@ import { isTouchDevice } from '../lib/platform'
 import { formatBytes, formatTime, formatTimestamp, isAudioName, isImageName } from '../lib/format'
 import DeleteMessageModal from './modals/DeleteMessageModal'
 import ImageViewerModal from './modals/ImageViewerModal'
+import EmojiPicker from './EmojiPicker'
 import Avatar from './Avatar'
 
 const Markdown = lazy(() => import('./Markdown'))
@@ -25,6 +26,7 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   const me = useAuth((s) => s.user)
   const [deleting, setDeleting] = useState(null)
   const [replyTo, setReplyTo] = useState(null)
+  const [emojiPos, setEmojiPos] = useState(null)
 
   const channel = serverDetail?.channels.find((c) => c.id === activeChannelId)
   const channelMessages = messages[activeChannelId] || []
@@ -366,6 +368,30 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
     }
   }
 
+  const toggleInputPicker = (e) => {
+    if (emojiPos) {
+      setEmojiPos(null)
+      return
+    }
+    const rect = e.currentTarget.getBoundingClientRect()
+    setEmojiPos({
+      top: Math.max(8, rect.top - 352),
+      left: Math.min(Math.max(8, rect.left), window.innerWidth - 330),
+    })
+  }
+
+  const insertEmoji = (emoji) => {
+    const input = inputRef.current
+    if (!input) return
+    const start = input.selectionStart ?? input.value.length
+    const end = input.selectionEnd ?? start
+    input.value = input.value.slice(0, start) + emoji + input.value.slice(end)
+    const pos = start + emoji.length
+    input.setSelectionRange(pos, pos)
+    input.focus()
+    handleTypingInput({ target: input })
+  }
+
   const submit = async () => {
     const input = inputRef.current
     const text = input.value.trim()
@@ -664,6 +690,15 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
               onPaste={handlePaste}
             />
             <button
+              onClick={toggleInputPicker}
+              disabled={uploading}
+              type="button"
+              title="Emoji"
+              className="p-1 mb-0.5 shrink-0 text-gray-400 hover:text-gray-200 disabled:opacity-50 transition"
+            >
+              <Smile className="w-5 h-5" />
+            </button>
+            <button
               onClick={submit}
               type="button"
               disabled={uploading}
@@ -674,6 +709,10 @@ export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
           </div>
         </div>
       </div>
+
+      {emojiPos && (
+        <EmojiPicker style={emojiPos} onSelect={insertEmoji} onClose={() => setEmojiPos(null)} />
+      )}
     </div>
   )
 }
@@ -699,11 +738,13 @@ function TypingIndicator({ users }) {
 }
 
 function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest, isJumpTarget }) {
-  const { serverDetail, editMessage, togglePinMessage, jumpToMessage } = useApp()
+  const { serverDetail, editMessage, togglePinMessage, toggleReaction, jumpToMessage } = useApp()
+  const me = useAuth((s) => s.user)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.content)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState(null)
+  const [pickerPos, setPickerPos] = useState(null)
   const [copied, setCopied] = useState(false)
   const editRef = useRef(null)
   const menuRef = useRef(null)
@@ -748,6 +789,17 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
   const jumpToReply = () => {
     if (!reply || reply.deleted) return
     jumpToMessage(message.channel, reply.id)
+  }
+
+  const openReactionPicker = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const above = rect.top > 356
+    const top = above ? rect.top - 352 : rect.bottom + 8
+    setMenuOpen(false)
+    setPickerPos({
+      top: Math.max(8, Math.min(top, window.innerHeight - 348)),
+      left: Math.min(Math.max(8, rect.left), window.innerWidth - 330),
+    })
   }
 
   useEffect(() => {
@@ -861,6 +913,31 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
                 </Suspense>
               </div>
               {message.attachment && <AttachmentView attachment={message.attachment} transcript={message.attachment_transcript} />}
+              {message.reactions?.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {message.reactions.map((reaction) => {
+                    const mine = reaction.users.some((u) => u.id === me?.id)
+                    return (
+                      <button
+                        key={reaction.emoji}
+                        type="button"
+                        onClick={() => toggleReaction(message.id, reaction.emoji)}
+                        title={reaction.users.map((u) => u.username).join(', ')}
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-xs transition ${
+                          mine
+                            ? 'bg-[#5865f2]/25 border-[#5865f2]/60'
+                            : 'bg-[#2b2d31] border-transparent hover:border-[#5865f2]/60'
+                        }`}
+                      >
+                        <span className="text-sm leading-none">{reaction.emoji}</span>
+                        <span className={`font-semibold tabular-nums ${mine ? 'text-[#c9cdfb]' : 'text-gray-300'}`}>
+                          {reaction.users.length}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
             {grouped && message.edited_at && (
               <span className="text-[10px] text-gray-500 shrink-0">(edited)</span>
@@ -871,6 +948,13 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
       {!editing && (
         <>
           <div className={`hover-reveal hidden md:flex items-start gap-1 shrink-0 ${message.pinned ? 'opacity-100' : ''}`}>
+            <button
+              onClick={openReactionPicker}
+              title="Add Reaction"
+              className="p-1.5 rounded bg-[#2b2d31] hover:bg-[#5865f2] text-gray-300 hover:text-white transition"
+            >
+              <SmilePlus className="w-4 h-4" />
+            </button>
             <button
               onClick={() => onReplyRequest(message)}
               title="Reply"
@@ -919,6 +1003,11 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
                 style={{ top: menuPos.top, right: Math.max(menuPos.right, 8) }}
               >
                   <MessageMenuItem
+                    icon={<SmilePlus className="w-4 h-4" />}
+                    label="Add Reaction"
+                    onClick={(e) => openReactionPicker(e)}
+                  />
+                  <MessageMenuItem
                     icon={<Reply className="w-4 h-4" />}
                     label="Reply"
                     onClick={() => {
@@ -962,6 +1051,16 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
                   )}
               </div>
             </>
+          )}
+          {pickerPos && (
+            <EmojiPicker
+              style={pickerPos}
+              onSelect={(emoji) => {
+                setPickerPos(null)
+                toggleReaction(message.id, emoji)
+              }}
+              onClose={() => setPickerPos(null)}
+            />
           )}
         </>
       )}

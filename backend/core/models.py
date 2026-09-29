@@ -81,3 +81,17 @@ class Message(models.Model):
 
     def __str__(self):
         return f"{self.author.username}: {self.content[:40]}"
+
+
+class Reaction(models.Model):
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name="reactions")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reactions")
+    emoji = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("message", "user", "emoji")
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.user.username}: {self.emoji} on {self.message_id}"

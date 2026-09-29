@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import { connectChat, sendChatMessage, editChatMessage, deleteChatMessage, pinChatMessage, disconnectAllChat } from '../ws/chat'
+import { connectChat, sendChatMessage, editChatMessage, deleteChatMessage, pinChatMessage, toggleChatReaction, disconnectAllChat } from '../ws/chat'
 import { connectRtc, leaveVoice, disconnectAllRtc } from '../ws/rtc'
 import { playSend } from '../lib/sounds'
 import { useVoice } from './voice'
@@ -117,6 +117,10 @@ export const useApp = create((set, get) => ({
 
   togglePinMessage: (messageId, pinned) => {
     pinChatMessage(messageId, pinned)
+  },
+
+  toggleReaction: (messageId, emoji) => {
+    toggleChatReaction(messageId, emoji)
   },
 
   searchMessages: async (query) => {

@@ -5,7 +5,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
 
-from .models import Channel, Message, Server
+from .models import Channel, Message, Reaction, Server
 from .state import online_users, voice_participants
 from .serializers import MessageSerializer, UserSerializer
 
@@ -99,6 +99,8 @@ class ChatConsumer(BaseServerConsumer):
             await self.handle_delete_message(data)
         elif msg_type == "pin-message":
             await self.handle_pin_message(data)
+        elif msg_type == "react-message":
+            await self.handle_react_message(data)
         elif msg_type == "typing":
             await self.handle_typing(data)
         elif msg_type == "stop-typing":
@@ -204,6 +206,31 @@ class ChatConsumer(BaseServerConsumer):
         if message is None:
             return
         await self.group_send_event({"kind": "message-pinned", "message": message})
+
+    @database_sync_to_async
+    def react_message_db(self, message_id, emoji):
+        try:
+            message = Message.objects.select_related("author", "reply_to__author").get(
+                id=message_id, channel__server_id=self.server_id
+            )
+        except (Message.DoesNotExist, ValueError, TypeError):
+            return None
+        reaction, created = Reaction.objects.get_or_create(
+            message=message, user=self.user, emoji=emoji
+        )
+        if not created:
+            reaction.delete()
+        return MessageSerializer(message).data
+
+    async def handle_react_message(self, data):
+        message_id = data.get("message_id")
+        emoji = (data.get("emoji") or "").strip()
+        if message_id is None or not emoji or len(emoji) > 64:
+            return
+        message = await self.react_message_db(message_id, emoji)
+        if message is None:
+            return
+        await self.group_send_event({"kind": "message-reaction", "message": message})
 
     async def handle_typing(self, data):
         channel_id = data.get("channel_id")

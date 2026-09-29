@@ -132,10 +132,11 @@ class MessageSerializer(serializers.ModelSerializer):
     author = UserSerializer(read_only=True)
     attachment = serializers.SerializerMethodField()
     reply_to = ReplyToSerializer(read_only=True)
+    reactions = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
-        fields = ["id", "channel", "author", "content", "attachment", "attachment_transcript", "reply_to", "created_at", "edited_at", "pinned"]
+        fields = ["id", "channel", "author", "content", "attachment", "attachment_transcript", "reply_to", "created_at", "edited_at", "pinned", "reactions"]
 
     def get_attachment(self, obj):
         if not obj.attachment:
@@ -145,3 +146,11 @@ class MessageSerializer(serializers.ModelSerializer):
             "name": obj.attachment.name.rsplit("/", 1)[-1],
             "size": obj.attachment.size,
         }
+
+    def get_reactions(self, obj):
+        grouped = {}
+        for reaction in obj.reactions.select_related("user"):
+            grouped.setdefault(reaction.emoji, []).append(
+                {"id": reaction.user.id, "username": reaction.user.username}
+            )
+        return [{"emoji": emoji, "users": users} for emoji, users in grouped.items()]

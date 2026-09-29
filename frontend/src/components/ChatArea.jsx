@@ -20,6 +20,20 @@ const GROUP_WINDOW_MS = 7 * 60 * 1000
 const TYPING_TIMEOUT_MS = 6000
 const TYPING_THROTTLE_MS = 2500
 
+const EMOJI_SEQ_RE =
+  /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*(?:[\u{E0020}-\u{E007F}]+)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*)*|(?:[0-9#*])\uFE0F?\u20E3|\p{Regional_Indicator}{1,2}/gu
+
+function jumboEmojiCount(text) {
+  if (!text) return 0
+  let count = 0
+  const rest = text.replace(EMOJI_SEQ_RE, () => {
+    count += 1
+    return ''
+  })
+  if (count < 1 || count > 30) return 0
+  return rest.replace(/\s/g, '') ? 0 : count
+}
+
 export default function ChatArea({ onOpenLeft, rightOpen, onToggleRight }) {
   const { serverDetail, activeChannelId, messages, hasMore, hasNewer, loadingOlder, loadingNewer, pinnedMessages, typingByChannel, clearTyping, sendMessage, deleteMessage, loadOlderMessages, loadNewerMessages, togglePinMessage, searchMessages, jumpToMessage, jumpToLatest, jumpTargetId, clearJumpTarget } = useApp()
   const voice = useVoice()
@@ -750,6 +764,7 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
   const menuRef = useRef(null)
   const copyTimer = useRef(null)
   const reply = message.reply_to
+  const jumbo = jumboEmojiCount(message.content)
 
   useEffect(() => () => clearTimeout(copyTimer.current), [])
 
@@ -907,7 +922,11 @@ function MessageItem({ message, isMine, grouped, onDeleteRequest, onReplyRequest
         ) : (
           <div className={`${grouped ? '' : 'mt-0.5'} flex items-baseline gap-1.5 min-w-0`}>
             <div className="flex-1 min-w-0">
-              <div className="text-sm text-gray-200 discord-markdown break-words select-text">
+              <div
+                className={`text-gray-200 discord-markdown break-words select-text ${
+                  !editing && jumbo ? (jumbo === 1 ? 'text-5xl' : 'text-[32px]') : 'text-sm'
+                }`}
+              >
                 <Suspense fallback={<span className="text-gray-400">{message.content}</span>}>
                   <Markdown>{message.content}</Markdown>
                 </Suspense>

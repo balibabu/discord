@@ -13,6 +13,7 @@ export const createResetSlice = (set) => ({
       serversLoaded: false,
       activeServerId: null,
       serverDetail: null,
+      serverDetails: {},
       activeChannelId: null,
       activeMessageId: null,
       messages: {},

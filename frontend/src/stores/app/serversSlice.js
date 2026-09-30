@@ -7,6 +7,7 @@ export const createServersSlice = (set, get) => ({
   serversLoaded: false,
   activeServerId: null,
   serverDetail: null,
+  serverDetails: {},
   unreadServers: {},
   activeChannelId: null,
   activeMessageId: null,
@@ -23,9 +24,26 @@ export const createServersSlice = (set, get) => ({
 
   selectServer: async (serverId, preferredChannelId) => {
     if (get().serverDetail && String(get().activeServerId) === String(serverId)) return
-    set({ activeServerId: serverId, serverDetail: null, activeChannelId: null, activeMessageId: null })
+    const cachedDetail = get().serverDetails[serverId]
+    set((s) => ({
+      serverDetails: s.serverDetail
+        ? { ...s.serverDetails, [s.activeServerId]: s.serverDetail }
+        : s.serverDetails,
+      activeServerId: serverId,
+      serverDetail: cachedDetail || null,
+      activeChannelId: null,
+      activeMessageId: null,
+    }))
     connectChat(serverId)
     connectRtc(serverId)
+    if (cachedDetail) {
+      const cachedText = cachedDetail.channels.filter((c) => c.type === 'text')
+      const cachedPreferred = preferredChannelId
+        ? cachedText.find((c) => String(c.id) === String(preferredChannelId))
+        : null
+      const cachedNext = cachedPreferred || cachedText[0]
+      if (cachedNext) set({ activeChannelId: cachedNext.id })
+    }
     const { data } = await api.get(`/servers/${serverId}/`)
     if (get().activeServerId !== serverId) return
     const textChannels = data.channels.filter((c) => c.type === 'text')
@@ -33,6 +51,8 @@ export const createServersSlice = (set, get) => ({
       ? textChannels.find((c) => String(c.id) === String(preferredChannelId))
       : null
     const next = preferred || textChannels[0]
+    const current = get().activeChannelId
+    const keepActive = current && textChannels.some((c) => String(c.id) === String(current))
     const hasNewer = {}
     for (const id of Object.keys(data.messages || {})) hasNewer[id] = false
     const unread = {}
@@ -43,8 +63,9 @@ export const createServersSlice = (set, get) => ({
         if (String(val) !== String(data.id)) keptUnread[id] = val
       }
       return {
+        serverDetails: { ...s.serverDetails, [serverId]: data },
         serverDetail: data,
-        activeChannelId: next ? next.id : null,
+        activeChannelId: keepActive ? current : next ? next.id : null,
         messages: { ...s.messages, ...data.messages },
         hasMore: { ...s.hasMore, ...data.has_more },
         hasNewer: { ...s.hasNewer, ...hasNewer },
@@ -88,6 +109,9 @@ export const createServersSlice = (set, get) => ({
   applyServerDelete: (serverId) => {
     set((s) => ({
       servers: s.servers.filter((x) => String(x.id) !== String(serverId)),
+      serverDetails: Object.fromEntries(
+        Object.entries(s.serverDetails).filter(([id]) => String(id) !== String(serverId))
+      ),
       unreadServers: Object.fromEntries(
         Object.entries(s.unreadServers).filter(([id]) => String(id) !== String(serverId))
       ),

@@ -7,12 +7,17 @@ export const createServersSlice = (set, get) => ({
   serversLoaded: false,
   activeServerId: null,
   serverDetail: null,
+  unreadServers: {},
   activeChannelId: null,
   activeMessageId: null,
 
   loadServers: async () => {
     const { data } = await api.get('/servers/')
-    set({ servers: data, serversLoaded: true })
+    set((s) => {
+      const unreadServers = { ...s.unreadServers }
+      for (const server of data) unreadServers[server.id] = !!server.has_unread
+      return { servers: data, serversLoaded: true, unreadServers }
+    })
     return data
   },
 
@@ -30,14 +35,24 @@ export const createServersSlice = (set, get) => ({
     const next = preferred || textChannels[0]
     const hasNewer = {}
     for (const id of Object.keys(data.messages || {})) hasNewer[id] = false
-    set((s) => ({
-      serverDetail: data,
-      activeChannelId: next ? next.id : null,
-      messages: { ...s.messages, ...data.messages },
-      hasMore: { ...s.hasMore, ...data.has_more },
-      hasNewer: { ...s.hasNewer, ...hasNewer },
-      pinnedMessages: { ...s.pinnedMessages, ...data.pinned },
-    }))
+    const unread = {}
+    for (const channel of data.channels) if (channel.unread) unread[channel.id] = data.id
+    set((s) => {
+      const keptUnread = {}
+      for (const [id, val] of Object.entries(s.unreadChannels)) {
+        if (String(val) !== String(data.id)) keptUnread[id] = val
+      }
+      return {
+        serverDetail: data,
+        activeChannelId: next ? next.id : null,
+        messages: { ...s.messages, ...data.messages },
+        hasMore: { ...s.hasMore, ...data.has_more },
+        hasNewer: { ...s.hasNewer, ...hasNewer },
+        pinnedMessages: { ...s.pinnedMessages, ...data.pinned },
+        unreadChannels: { ...keptUnread, ...unread },
+        unreadServers: { ...s.unreadServers, [data.id]: Object.keys(unread).length > 0 },
+      }
+    })
   },
 
   createServer: async (name) => {
@@ -56,21 +71,27 @@ export const createServersSlice = (set, get) => ({
   },
 
   applyServerUpdate: (server) => {
+    const { has_unread: _hasUnread, ...rest } = server
     set((s) => {
       const servers = s.servers
-        .map((x) => (String(x.id) === String(server.id) ? { ...x, ...server } : x))
+        .map((x) => (String(x.id) === String(rest.id) ? { ...x, ...rest } : x))
         .slice()
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name))
       const serverDetail =
-        s.serverDetail && String(s.serverDetail.id) === String(server.id)
-          ? { ...s.serverDetail, ...server }
+        s.serverDetail && String(s.serverDetail.id) === String(rest.id)
+          ? { ...s.serverDetail, ...rest }
           : s.serverDetail
       return { servers, serverDetail }
     })
   },
 
   applyServerDelete: (serverId) => {
-    set((s) => ({ servers: s.servers.filter((x) => String(x.id) !== String(serverId)) }))
+    set((s) => ({
+      servers: s.servers.filter((x) => String(x.id) !== String(serverId)),
+      unreadServers: Object.fromEntries(
+        Object.entries(s.unreadServers).filter(([id]) => String(id) !== String(serverId))
+      ),
+    }))
     const state = get()
     if (String(state.activeServerId) !== String(serverId)) return
     const next = state.servers[0]

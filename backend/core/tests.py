@@ -16,7 +16,7 @@ from rest_framework.authtoken.models import Token
 
 from config.asgi import application
 from .consumers import ChatConsumer
-from .models import Channel, Membership, Message, Reaction, Server
+from .models import Channel, ChannelReadState, Membership, Message, Reaction, Server
 from .serializers import MessageSerializer
 
 User = get_user_model()
@@ -760,3 +760,84 @@ class MessagePaginationTests(TestCase):
         data = self._client().get(self.url, {"before": created[109].id}).json()
         self.assertEqual([m["id"] for m in data["messages"]], [m.id for m in created[59:109]])
         self.assertTrue(data["has_more"])
+
+
+class ReadStateTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="readowner", password="pass1234")
+        self.member = User.objects.create_user(username="readmember", password="pass1234")
+        self.outsider = User.objects.create_user(username="readoutsider", password="pass1234")
+        self.server = Server.objects.create(name="srv", owner=self.owner)
+        Membership.objects.create(server=self.server, user=self.owner, role=Membership.ROLE_OWNER)
+        Membership.objects.create(server=self.server, user=self.member, role=Membership.ROLE_MEMBER)
+        self.channel = Channel.objects.create(server=self.server, name="general", type=Channel.TYPE_TEXT)
+        self.owner_token = Token.objects.create(user=self.owner)
+        self.member_token = Token.objects.create(user=self.member)
+        self.outsider_token = Token.objects.create(user=self.outsider)
+        self.detail_url = f"/api/servers/{self.server.id}/"
+        self.read_url = f"/api/servers/{self.server.id}/channels/{self.channel.id}/read/"
+
+    def _client(self, token):
+        from django.test import Client
+
+        client = Client()
+        client.defaults["HTTP_AUTHORIZATION"] = f"Token {token.key}"
+        return client
+
+    def _channel_entry(self, response):
+        return next(c for c in response.json()["channels"] if c["id"] == self.channel.id)
+
+    def test_channel_without_read_state_is_not_unread(self):
+        Message.objects.create(channel=self.channel, author=self.owner, content="old")
+        response = self._client(self.member_token).get(self.detail_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self._channel_entry(response)["unread"])
+
+    def test_new_message_marks_channel_unread(self):
+        response = self._client(self.member_token).post(self.read_url)
+        self.assertEqual(response.status_code, 200)
+        Message.objects.create(channel=self.channel, author=self.owner, content="new")
+        response = self._client(self.member_token).get(self.detail_url)
+        self.assertTrue(self._channel_entry(response)["unread"])
+
+    def test_mark_read_clears_unread(self):
+        self._client(self.member_token).post(self.read_url)
+        message = Message.objects.create(channel=self.channel, author=self.owner, content="new")
+        response = self._client(self.member_token).post(self.read_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            ChannelReadState.objects.get(channel=self.channel, user=self.member).last_read_id,
+            message.id,
+        )
+        response = self._client(self.member_token).get(self.detail_url)
+        self.assertFalse(self._channel_entry(response)["unread"])
+
+    def test_voice_channels_never_unread(self):
+        voice = Channel.objects.create(server=self.server, name="Voice", type=Channel.TYPE_VOICE)
+        self._client(self.member_token).post(f"/api/servers/{self.server.id}/channels/{voice.id}/read/")
+        Message.objects.create(channel=self.channel, author=self.owner, content="x")
+        self._client(self.member_token).post(self.read_url)
+        response = self._client(self.member_token).get(self.detail_url)
+        entry = next(c for c in response.json()["channels"] if c["id"] == voice.id)
+        self.assertFalse(entry["unread"])
+
+    def test_read_rejects_non_member(self):
+        response = self._client(self.outsider_token).post(self.read_url)
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(ChannelReadState.objects.exists())
+
+    def test_read_rejects_unknown_channel(self):
+        response = self._client(self.member_token).post(
+            f"/api/servers/{self.server.id}/channels/999999/read/"
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_servers_list_has_unread_flag(self):
+        Message.objects.create(channel=self.channel, author=self.owner, content="old")
+        self._client(self.member_token).post(self.read_url)
+        Message.objects.create(channel=self.channel, author=self.owner, content="new")
+        response = self._client(self.member_token).get("/api/servers/")
+        self.assertTrue(response.json()[0]["has_unread"])
+        self._client(self.member_token).post(self.read_url)
+        response = self._client(self.member_token).get("/api/servers/")
+        self.assertFalse(response.json()[0]["has_unread"])

@@ -6,7 +6,7 @@ import { joinVoice, leaveVoice, toggleMute, toggleDeafen } from '../ws/rtc'
 import Avatar from './Avatar'
 
 export default function ChannelSidebar({ onAddChannel, onChannelSettings, onServerSettings, onOpenProfile, onCloseDrawer }) {
-  const { serverDetail, activeServerId, activeChannelId, selectChannel, onlineByServer } = useApp()
+  const { serverDetail, activeServerId, activeChannelId, selectChannel, onlineByServer, unreadChannels } = useApp()
   const user = useAuth((s) => s.user)
   const voice = useVoice()
   const online = (onlineByServer[activeServerId] || []).includes(user?.id)
@@ -56,6 +56,7 @@ export default function ChannelSidebar({ onAddChannel, onChannelSettings, onServ
           <div className="space-y-0.5">
             {textChannels.map((channel) => {
               const isActive = channel.id === activeChannelId
+              const unread = !isActive && !!unreadChannels[channel.id]
               return (
                 <div
                   key={channel.id}
@@ -63,10 +64,13 @@ export default function ChannelSidebar({ onAddChannel, onChannelSettings, onServ
                     selectChannel(channel.id)
                     onCloseDrawer?.()
                   }}
-                  className={`group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm font-medium transition ${isActive ? 'bg-[#35373c] text-white' : 'text-gray-400 hover:bg-[#35373c]/60 hover:text-gray-200'}`}
+                  className={`relative group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm transition ${isActive ? 'bg-[#35373c] text-white font-medium' : unread ? 'text-white hover:bg-[#35373c]/60' : 'text-gray-400 font-medium hover:bg-[#35373c]/60 hover:text-gray-200'}`}
                 >
-                  <Hash className="w-4 h-4 text-gray-400 shrink-0" />
-                  <span className="truncate flex-1">{channel.name}</span>
+                  {unread && (
+                    <span className="absolute -left-2 top-1/2 -translate-y-1/2 w-1 h-2 rounded-full bg-white" />
+                  )}
+                  <Hash className={`w-4 h-4 shrink-0 ${unread ? 'text-white' : 'text-gray-400'}`} />
+                  <span className={`truncate flex-1 ${unread ? 'font-bold' : ''}`}>{channel.name}</span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation()

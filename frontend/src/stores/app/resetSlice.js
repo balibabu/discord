@@ -23,6 +23,8 @@ export const createResetSlice = (set) => ({
       pinnedMessages: {},
       onlineByServer: {},
       typingByChannel: {},
+      unreadChannels: {},
+      unreadServers: {},
       jumpTargetId: null,
     })
   },

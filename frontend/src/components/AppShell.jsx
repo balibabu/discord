@@ -88,6 +88,17 @@ export default function AppShell() {
     navigate(target)
   }, [activeServerId, activeChannelId, activeMessageId, serverDetail])
 
+  useEffect(() => {
+    const markVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      const { activeChannelId: id, markChannelRead } = useApp.getState()
+      if (id) markChannelRead(id)
+    }
+    markVisible()
+    document.addEventListener('visibilitychange', markVisible)
+    return () => document.removeEventListener('visibilitychange', markVisible)
+  }, [activeChannelId])
+
   const handleLogout = () => {
     reset()
     logout()

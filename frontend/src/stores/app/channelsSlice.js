@@ -1,6 +1,32 @@
 import { api } from '../../lib/api'
 
 export const createChannelsSlice = (set, get) => ({
+  unreadChannels: {},
+
+  setChannelUnread: (channelId, serverId) => {
+    if (!channelId) return
+    set((s) =>
+      s.unreadChannels[channelId] ? s : { unreadChannels: { ...s.unreadChannels, [channelId]: serverId } }
+    )
+  },
+
+  clearChannelUnread: (channelId) => {
+    if (!channelId) return
+    set((s) => {
+      if (!s.unreadChannels[channelId]) return s
+      const unreadChannels = { ...s.unreadChannels }
+      delete unreadChannels[channelId]
+      return { unreadChannels }
+    })
+  },
+
+  markChannelRead: (channelId) => {
+    if (!channelId) return
+    get().clearChannelUnread(channelId)
+    const serverId = get().activeServerId
+    api.post(`/servers/${serverId}/channels/${channelId}/read/`).catch(() => {})
+  },
+
   selectChannel: (channelId) => {
     set({ activeChannelId: channelId, activeMessageId: null })
     get().loadMessages(channelId)
@@ -48,6 +74,7 @@ export const createChannelsSlice = (set, get) => ({
         loadingOlder: drop(s.loadingOlder),
         pinnedMessages: drop(s.pinnedMessages),
         typingByChannel: drop(s.typingByChannel),
+        unreadChannels: drop(s.unreadChannels),
       }
       if (!s.serverDetail || String(s.serverDetail.id) !== String(serverId)) return state
       const channels = s.serverDetail.channels.filter((c) => c.id !== channelId)

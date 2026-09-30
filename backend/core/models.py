@@ -83,6 +83,19 @@ class Message(models.Model):
         return f"{self.author.username}: {self.content[:40]}"
 
 
+class ChannelReadState(models.Model):
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="read_states")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="read_states")
+    last_read_id = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("channel", "user")
+
+    def __str__(self):
+        return f"{self.user.username} read up to {self.last_read_id} in {self.channel_id}"
+
+
 class Reaction(models.Model):
     message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name="reactions")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reactions")

@@ -45,6 +45,18 @@ function handleEvent(serverId, data) {
       }
       app.clearTyping(data.message.channel, data.message.author.id)
       app.appendMessage(data.message)
+      {
+        const state = useApp.getState()
+        const viewing =
+          String(serverId) === String(state.activeServerId) &&
+          String(data.message.channel) === String(state.activeChannelId) &&
+          !document.hidden
+        if (viewing) state.markChannelRead(data.message.channel)
+        else state.setChannelUnread(data.message.channel, serverId)
+      }
+      break
+    case 'read':
+      if (data.user_id === useAuth.getState().user?.id) app.clearChannelUnread(data.channel_id)
       break
     case 'message-edited':
       app.updateMessage(data.message)

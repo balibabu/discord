@@ -50,10 +50,28 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
 
 
+def channel_is_unread(channel, user):
+    if channel.type != Channel.TYPE_TEXT:
+        return False
+    latest_id = Message.objects.filter(channel=channel).order_by("-id").values_list("id", flat=True).first()
+    if latest_id is None:
+        return False
+    state = channel.read_states.filter(user=user).first()
+    return state is not None and state.last_read_id < latest_id
+
+
 class ChannelSerializer(serializers.ModelSerializer):
+    unread = serializers.SerializerMethodField()
+
     class Meta:
         model = Channel
-        fields = ["id", "server", "name", "type", "position", "created_at"]
+        fields = ["id", "server", "name", "type", "position", "created_at", "unread"]
+
+    def get_unread(self, obj):
+        request = self.context.get("request")
+        if request is None or not request.user.is_authenticated:
+            return False
+        return channel_is_unread(obj, request.user)
 
 
 class ChannelUpdateSerializer(serializers.ModelSerializer):
@@ -85,10 +103,17 @@ class MembershipSerializer(serializers.ModelSerializer):
 class ServerSerializer(serializers.ModelSerializer):
     icon = serializers.SerializerMethodField()
     icon_url = serializers.SerializerMethodField()
+    has_unread = serializers.SerializerMethodField()
 
     class Meta:
         model = Server
-        fields = ["id", "name", "icon", "icon_url", "position", "created_at"]
+        fields = ["id", "name", "icon", "icon_url", "position", "created_at", "has_unread"]
+
+    def get_has_unread(self, obj):
+        request = self.context.get("request")
+        if request is None or not request.user.is_authenticated:
+            return False
+        return any(channel_is_unread(c, request.user) for c in obj.channels.all())
 
     def get_icon(self, obj):
         words = obj.name.split()

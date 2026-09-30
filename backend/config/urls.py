@@ -45,6 +45,10 @@ urlpatterns = [
         "api/servers/<int:server_id>/channels/<int:channel_id>/upload/",
         views.MessageUploadView.as_view(),
     ),
+    path(
+        "api/servers/<int:server_id>/channels/<int:channel_id>/read/",
+        views.ChannelReadView.as_view(),
+    ),
     path("api/servers/<int:server_id>/members/", views.MemberAddView.as_view()),
     re_path(r"^media/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}),
     re_path(r"^assets/(?P<path>.*)$", serve, {"document_root": FRONTEND_DIST / "assets"}),

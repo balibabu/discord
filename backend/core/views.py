@@ -11,7 +11,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Channel, Membership, Message, Server, User
+from .models import Channel, ChannelReadState, Membership, Message, Server, User
 from .serializers import (
     ChannelSerializer,
     ChannelUpdateSerializer,
@@ -96,7 +96,7 @@ class UserListView(APIView):
 class ServerListView(APIView):
     def get(self, request):
         servers = Server.objects.filter(memberships__user=request.user).distinct()
-        return Response(ServerSerializer(servers, many=True).data)
+        return Response(ServerSerializer(servers, many=True, context={"request": request}).data)
 
     @transaction.atomic
     def post(self, request):
@@ -127,7 +127,7 @@ class ServerDetailView(APIView):
         server, membership = get_membership_or_none(request.user, server_id)
         if membership is None:
             return Response({"error": "Not a member of this server."}, status=status.HTTP_403_FORBIDDEN)
-        data = ServerDetailSerializer(server).data
+        data = ServerDetailSerializer(server, context={"request": request}).data
         messages = {}
         has_more = {}
         pinned = {}
@@ -363,6 +363,27 @@ class MessageUploadView(APIView):
         if transcription_ready(mime_type):
             threading.Thread(target=transcribe_message, args=(message.id, mime_type), daemon=True).start()
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
+
+
+class ChannelReadView(APIView):
+    def post(self, request, server_id, channel_id):
+        server, membership = get_membership_or_none(request.user, server_id)
+        if membership is None:
+            return Response({"error": "Not a member of this server."}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            channel = server.channels.get(id=channel_id, type=Channel.TYPE_TEXT)
+        except Channel.DoesNotExist:
+            return Response({"error": "Channel not found."}, status=status.HTTP_404_NOT_FOUND)
+        latest_id = (
+            Message.objects.filter(channel=channel).order_by("-id").values_list("id", flat=True).first() or 0
+        )
+        ChannelReadState.objects.update_or_create(
+            channel=channel, user=request.user, defaults={"last_read_id": latest_id}
+        )
+        async_to_sync(broadcast_to_server)(
+            server.id, {"kind": "read", "user_id": request.user.id, "channel_id": channel.id},
+        )
+        return Response({"ok": True})
 
 
 class MemberAddView(APIView):

@@ -2,20 +2,23 @@ import { LogOut, Plus } from 'lucide-react'
 import { useApp } from '../stores/app'
 
 export default function ServerRail({ onAddServer, onLogout }) {
-  const { servers, activeServerId, selectServer } = useApp()
+  const { servers, activeServerId, selectServer, unreadChannels, unreadServers } = useApp()
 
   return (
     <nav className="w-[72px] bg-[#1e1f22] py-3 flex flex-col items-center space-y-2 shrink-0 z-20">
       <div className="flex-1 w-full space-y-2 overflow-y-auto overflow-x-hidden flex flex-col items-center">
         {servers.map((server) => {
           const isActive = server.id === activeServerId
+          const hasUnread =
+            unreadServers[server.id] ||
+            Object.values(unreadChannels).some((id) => String(id) === String(server.id))
           return (
             <button
               key={server.id}
               onClick={() => selectServer(server.id)}
               className="relative group flex items-center justify-center w-full"
             >
-              <div className={`w-1 ${isActive ? 'h-10' : 'h-0 group-hover:h-5'} bg-white rounded-r-full absolute left-0 transition-all duration-200`} />
+              <div className={`w-1 ${isActive ? 'h-10' : hasUnread ? 'h-2 group-hover:h-5' : 'h-0 group-hover:h-5'} bg-white rounded-r-full absolute left-0 transition-all duration-200`} />
               <div
                 className={`w-12 h-12 ${isActive ? 'rounded-2xl bg-[#5865f2] text-white' : 'rounded-3xl hover:rounded-2xl bg-[#313338] hover:bg-[#5865f2] text-gray-200 hover:text-white'} flex items-center justify-center font-bold cursor-pointer transition-all duration-200 shadow-md text-sm overflow-hidden`}
                 title={server.name}

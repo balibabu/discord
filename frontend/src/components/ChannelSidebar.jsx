@@ -6,15 +6,65 @@ import { joinVoice, leaveVoice, toggleMute, toggleDeafen } from '../ws/rtc'
 import Avatar from './Avatar'
 
 export default function ChannelSidebar({ onAddChannel, onChannelSettings, onServerSettings, onOpenProfile, onCloseDrawer }) {
-  const { serverDetail, activeServerId, activeChannelId, selectChannel, onlineByServer, unreadChannels } = useApp()
+  const { serverDetail, activeServerId, activeChannelId, selectChannel, onlineByServer, unreadChannels, servers, serversLoaded } = useApp()
   const user = useAuth((s) => s.user)
   const voice = useVoice()
   const online = (onlineByServer[activeServerId] || []).includes(user?.id)
 
+  const footer = (
+    <footer className="h-[52px] bg-[#232428] px-2 flex items-center justify-between shrink-0">
+      <div className="flex items-center gap-2 overflow-hidden p-1 rounded hover:bg-[#313338] cursor-pointer flex-1">
+        <Avatar
+          user={user}
+          statusDot={
+            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#232428] ${voice.inVoice && voice.muted ? 'bg-red-500' : online ? 'bg-[#23a55a]' : 'bg-gray-500'}`} />
+          }
+          onClick={onOpenProfile}
+        />
+        <div className="leading-tight truncate">
+          <div className="text-xs font-bold text-white truncate">{user?.username}</div>
+          <div className="text-[10px] text-gray-400">#{user?.id}</div>
+        </div>
+      </div>
+
+      <div className="flex items-center text-gray-400">
+        <button
+          onClick={toggleMute}
+          disabled={!voice.inVoice}
+          title={voice.muted ? 'Unmute' : 'Mute'}
+          className={`p-1.5 rounded transition disabled:opacity-40 ${voice.muted ? 'text-red-500' : 'hover:text-white hover:bg-[#313338]'}`}
+        >
+          {voice.muted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+        </button>
+        <button
+          onClick={toggleDeafen}
+          disabled={!voice.inVoice}
+          title={voice.deafened ? 'Undeafen' : 'Deafen'}
+          className={`p-1.5 rounded transition disabled:opacity-40 ${voice.deafened ? 'text-red-500' : 'hover:text-white hover:bg-[#313338]'}`}
+        >
+          {voice.deafened ? <VolumeX className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
+        </button>
+      </div>
+    </footer>
+  )
+
   if (!serverDetail) {
+    const noServers = serversLoaded && servers.length === 0
     return (
       <aside className="w-60 bg-[#2b2d31] flex flex-col h-full shrink-0 border-r border-[#1f2023]/40">
-        <div className="m-auto text-xs text-gray-500">Loading...</div>
+        <div className="flex-1 flex items-center justify-center px-6 text-center">
+          {noServers ? (
+            <div className="text-xs leading-relaxed">
+              <div className="text-sm font-bold text-gray-200 mb-1">No servers yet</div>
+              <div className="text-gray-400">
+                Tap <Plus className="inline w-3.5 h-3.5 text-[#23a55a] -mt-0.5" /> in the rail to create your first server
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-gray-500">Loading...</div>
+          )}
+        </div>
+        {footer}
       </aside>
     )
   }
@@ -162,40 +212,7 @@ export default function ChannelSidebar({ onAddChannel, onChannelSettings, onServ
         </div>
       )}
 
-      <footer className="h-[52px] bg-[#232428] px-2 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2 overflow-hidden p-1 rounded hover:bg-[#313338] cursor-pointer flex-1">
-          <Avatar
-            user={user}
-            statusDot={
-              <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#232428] ${voice.inVoice && voice.muted ? 'bg-red-500' : online ? 'bg-[#23a55a]' : 'bg-gray-500'}`} />
-            }
-            onClick={onOpenProfile}
-          />
-          <div className="leading-tight truncate">
-            <div className="text-xs font-bold text-white truncate">{user?.username}</div>
-            <div className="text-[10px] text-gray-400">#{user?.id}</div>
-          </div>
-        </div>
-
-        <div className="flex items-center text-gray-400">
-          <button
-            onClick={toggleMute}
-            disabled={!voice.inVoice}
-            title={voice.muted ? 'Unmute' : 'Mute'}
-            className={`p-1.5 rounded transition disabled:opacity-40 ${voice.muted ? 'text-red-500' : 'hover:text-white hover:bg-[#313338]'}`}
-          >
-            {voice.muted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-          </button>
-          <button
-            onClick={toggleDeafen}
-            disabled={!voice.inVoice}
-            title={voice.deafened ? 'Undeafen' : 'Deafen'}
-            className={`p-1.5 rounded transition disabled:opacity-40 ${voice.deafened ? 'text-red-500' : 'hover:text-white hover:bg-[#313338]'}`}
-          >
-            {voice.deafened ? <VolumeX className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
-          </button>
-        </div>
-      </footer>
+      {footer}
     </aside>
   )
 }

@@ -1,4 +1,5 @@
 import json
+from urllib.parse import parse_qs
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
@@ -6,7 +7,7 @@ from django.utils import timezone
 from rest_framework.authtoken.models import Token
 
 from .models import Channel, Message, Reaction, Server
-from .state import online_users, voice_participants
+from .state import online_counts, online_users, session_channels, voice_owners, voice_participants
 from .serializers import MessageSerializer, UserSerializer
 
 
@@ -19,7 +20,8 @@ class BaseServerConsumer(AsyncJsonWebsocketConsumer):
 
     @database_sync_to_async
     def authenticate(self, server_id):
-        token_key = self.scope["query_string"].decode().replace("token=", "")
+        params = parse_qs(self.scope["query_string"].decode())
+        token_key = (params.get("token") or [""])[0]
         try:
             token = Token.objects.select_related("user").get(key=token_key)
         except Token.DoesNotExist:
@@ -34,10 +36,13 @@ class BaseServerConsumer(AsyncJsonWebsocketConsumer):
 
     async def connect(self):
         self.server_id = self.scope["url_route"]["kwargs"]["server_id"]
+        params = parse_qs(self.scope["query_string"].decode())
+        self.device_id = (params.get("device") or [""])[0] or self.channel_name
         self.user = await self.authenticate(self.server_id)
         if self.user is None:
             await self.close(code=4001)
             return
+        session_channels[self.user.id][self.channel_name] = self.device_id
         await self.after_auth()
 
     async def after_auth(self):
@@ -49,7 +54,11 @@ class BaseServerConsumer(AsyncJsonWebsocketConsumer):
     async def disconnect(self, code):
         if self.user is None:
             return
+        session_channels[self.user.id].pop(self.channel_name, None)
         await self.on_disconnect()
+
+    async def session_kick(self, event):
+        await self.close(code=4010)
 
     async def on_disconnect(self):
         raise NotImplementedError
@@ -62,16 +71,25 @@ class ChatConsumer(BaseServerConsumer):
         await self.accept()
 
         server_users = online_users[self.server_id]
+        count = online_counts[self.server_id].get(self.user.id, 0)
+        online_counts[self.server_id][self.user.id] = count + 1
         server_users[self.user.id] = self.user.username
         await self.send_json({"kind": "presence", "online": list(server_users.keys())})
-        await self.group_send_event(
-            {"kind": "presence-join", "user": {"id": self.user.id, "username": self.user.username}}
-        )
+        if count == 0:
+            await self.group_send_event(
+                {"kind": "presence-join", "user": {"id": self.user.id, "username": self.user.username}}
+            )
 
     async def on_disconnect(self):
-        server_users = online_users.get(self.server_id, {})
-        if server_users.pop(self.user.id, None) is not None:
-            await self.group_send_event({"kind": "presence-leave", "user_id": self.user.id})
+        counts = online_counts.get(self.server_id, {})
+        count = counts.get(self.user.id, 1)
+        if count <= 1:
+            counts.pop(self.user.id, None)
+            server_users = online_users.get(self.server_id, {})
+            if server_users.pop(self.user.id, None) is not None:
+                await self.group_send_event({"kind": "presence-leave", "user_id": self.user.id})
+        else:
+            counts[self.user.id] = count - 1
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def group_send_event(self, event, exclude_self=False):
@@ -105,6 +123,10 @@ class ChatConsumer(BaseServerConsumer):
             await self.handle_typing(data)
         elif msg_type == "stop-typing":
             await self.handle_stop_typing(data)
+        elif msg_type == "check-session":
+            await self.handle_check_session()
+        elif msg_type == "takeover":
+            await self.handle_takeover()
 
     @database_sync_to_async
     def save_message(self, channel_id, content, reply_to_id=None):
@@ -254,6 +276,37 @@ class ChatConsumer(BaseServerConsumer):
             exclude_self=True,
         )
 
+    async def handle_check_session(self):
+        channels = session_channels.get(self.user.id, {})
+        if any(dev != self.device_id for dev in channels.values()):
+            await self.send_json({"kind": "connected-elsewhere"})
+
+    async def handle_takeover(self):
+        channels = session_channels.get(self.user.id, {})
+        for channel_name, dev in list(channels.items()):
+            if dev != self.device_id:
+                await self.channel_layer.send(channel_name, {"type": "session.kick"})
+        for server_id, owners in list(voice_owners.items()):
+            owner = owners.get(self.user.id)
+            if owner is None or channels.get(owner) == self.device_id:
+                continue
+            owners.pop(self.user.id, None)
+            participants = voice_participants.get(server_id, {})
+            if participants.pop(self.user.id, None) is None:
+                continue
+            await self.channel_layer.group_send(
+                f"rtc.{server_id}",
+                {
+                    "type": "relay.event",
+                    "event": {
+                        "kind": "voice-state",
+                        "participants": [{"id": uid, **state} for uid, state in participants.items()],
+                    },
+                    "exclude": None,
+                },
+            )
+        await self.send_json({"kind": "session-took-over"})
+
 
 class RTCConsumer(BaseServerConsumer):
     async def after_auth(self):
@@ -269,9 +322,12 @@ class RTCConsumer(BaseServerConsumer):
         )
 
     async def on_disconnect(self):
-        participants = voice_participants.get(self.server_id, {})
-        if participants.pop(self.user.id, None) is not None:
-            await self.broadcast_voice_state()
+        owners = voice_owners.get(self.server_id, {})
+        if owners.get(self.user.id) == self.channel_name:
+            owners.pop(self.user.id, None)
+            participants = voice_participants.get(self.server_id, {})
+            if participants.pop(self.user.id, None) is not None:
+                await self.broadcast_voice_state()
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     def snapshot_participants(self):
@@ -313,8 +369,15 @@ class RTCConsumer(BaseServerConsumer):
     async def handle_join_voice(self, data):
         channel = (data.get("channel") or "").strip()
         participants = voice_participants[self.server_id]
+        owners = voice_owners[self.server_id]
         if self.user.id in participants:
-            return
+            owner = owners.get(self.user.id)
+            if owner == self.channel_name:
+                return
+            if session_channels.get(self.user.id, {}).get(owner) != self.device_id:
+                await self.send_json({"kind": "voice-conflict"})
+                return
+            participants.pop(self.user.id, None)
         participants[self.user.id] = {
             "username": self.user.username,
             "channel": channel,
@@ -322,6 +385,7 @@ class RTCConsumer(BaseServerConsumer):
             "deafened": False,
             "sharing": False,
         }
+        owners[self.user.id] = self.channel_name
         await self.broadcast_voice_state()
         await self.channel_layer.group_send(
             self.group_name,
@@ -334,11 +398,17 @@ class RTCConsumer(BaseServerConsumer):
         )
 
     async def handle_leave_voice(self):
+        owners = voice_owners.get(self.server_id, {})
+        if owners.get(self.user.id) != self.channel_name:
+            return
+        owners.pop(self.user.id, None)
         participants = voice_participants.get(self.server_id, {})
         if participants.pop(self.user.id, None) is not None:
             await self.broadcast_voice_state()
 
     async def handle_state_update(self, data):
+        if voice_owners.get(self.server_id, {}).get(self.user.id) != self.channel_name:
+            return
         state = voice_participants.get(self.server_id, {}).get(self.user.id)
         if state is None:
             return

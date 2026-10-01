@@ -1,6 +1,9 @@
 export const createPresenceSlice = (set) => ({
   onlineByServer: {},
   typingByChannel: {},
+  sessionPrompt: null,
+
+  setSessionPrompt: (serverId) => set({ sessionPrompt: serverId }),
 
   setOnline: (serverId, userIds) =>
     set((s) => ({ onlineByServer: { ...s.onlineByServer, [serverId]: userIds } })),

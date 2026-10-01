@@ -1,4 +1,6 @@
 import { useVoice } from '../../stores/voice'
+import { useApp } from '../../stores/app'
+import { getDeviceId } from '../../lib/device'
 import { rtc } from './state'
 import { handleVoiceState, handlePeerJoined, handleSignal, teardownAllPeers } from './peers'
 import { handleMediaChunk } from './playback'
@@ -20,7 +22,7 @@ export function connectRtc(serverId) {
   const token = localStorage.getItem('token')
   if (!token) return
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${protocol}://${location.host}/ws/rtc/${serverId}/?token=${token}`)
+  const ws = new WebSocket(`${protocol}://${location.host}/ws/rtc/${serverId}/?token=${token}&device=${getDeviceId()}`)
   ws.onopen = () => {
     const voice = useVoice.getState()
     if (String(serverId) === String(voice.voiceServerId) && voice.inVoice) {
@@ -50,6 +52,15 @@ export function connectRtc(serverId) {
       case 'media-chunk':
         handleMediaChunk(serverId, data)
         break
+      case 'voice-conflict': {
+        const voice = useVoice.getState()
+        if (voice.inVoice) {
+          voice.setLocalState({ inVoice: false })
+          teardownAllPeers()
+        }
+        useApp.getState().setSessionPrompt(serverId)
+        break
+      }
       default:
         break
     }
@@ -57,6 +68,15 @@ export function connectRtc(serverId) {
   ws.onclose = (event) => {
     if (rtc.sockets[serverId] !== ws) return
     delete rtc.sockets[serverId]
+    if (event.code === 4010) {
+      const voice = useVoice.getState()
+      if (voice.inVoice && String(serverId) === String(voice.voiceServerId)) {
+        teardownAllPeers()
+        stopLocalTracks()
+        voice.reset()
+      }
+      return
+    }
     scheduleReconnect(serverId, event.code)
   }
   rtc.sockets[serverId] = ws

@@ -2,6 +2,8 @@ import { useApp } from '../stores/app'
 import { useAuth } from '../stores/auth'
 import { playSend, playReceive } from '../lib/sounds'
 import { showMessageNotification } from '../lib/notifications'
+import { getDeviceId } from '../lib/device'
+import { rejoinVoiceAfterTakeover, cancelPendingVoice } from './rtc'
 
 const chatSockets = {}
 const pendingByServer = {}
@@ -10,6 +12,7 @@ const desiredServers = new Set()
 const RECONNECT_MS = 4000
 const RESYNC_GAP_MS = 300000
 let hiddenAt = null
+let sessionDismissed = false
 
 function enqueue(serverId, payload) {
   if (!pendingByServer[serverId]) pendingByServer[serverId] = []
@@ -122,6 +125,12 @@ function handleEvent(serverId, data) {
     case 'server-deleted':
       app.applyServerDelete(data.server_id)
       break
+    case 'connected-elsewhere':
+      if (!sessionDismissed) app.setSessionPrompt(serverId)
+      break
+    case 'session-took-over':
+      rejoinVoiceAfterTakeover()
+      break
     default:
       break
   }
@@ -141,17 +150,23 @@ export function connectChat(serverId) {
   const token = localStorage.getItem('token')
   if (!token) return
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${protocol}://${location.host}/ws/chat/${serverId}/?token=${token}`)
+  const ws = new WebSocket(`${protocol}://${location.host}/ws/chat/${serverId}/?token=${token}&device=${getDeviceId()}`)
   connectingAt[serverId] = Date.now()
   ws.onmessage = (event) => handleEvent(serverId, JSON.parse(event.data))
   ws.onopen = () => {
     delete connectingAt[serverId]
     flushPending(serverId)
+    ws.send(JSON.stringify({ type: 'check-session' }))
   }
   ws.onclose = (event) => {
     delete connectingAt[serverId]
     if (chatSockets[serverId] !== ws) return
     delete chatSockets[serverId]
+    if (event.code === 4010) {
+      desiredServers.delete(serverId)
+      useApp.getState().setSessionPrompt(serverId)
+      return
+    }
     scheduleReconnect(serverId, event.code)
   }
   chatSockets[serverId] = ws
@@ -239,6 +254,18 @@ export function sendStopTyping(channelId) {
   sendTo(useApp.getState().activeServerId, { type: 'stop-typing', channel_id: channelId }, false)
 }
 
+export function confirmSessionTakeover(serverId) {
+  sessionDismissed = true
+  useApp.getState().setSessionPrompt(null)
+  if (serverId) sendTo(serverId, { type: 'takeover' })
+}
+
+export function dismissSessionPrompt() {
+  sessionDismissed = true
+  cancelPendingVoice()
+  useApp.getState().setSessionPrompt(null)
+}
+
 export function disconnectAllChat() {
   for (const serverId of Object.keys(chatSockets)) {
     const ws = chatSockets[serverId]
@@ -249,5 +276,6 @@ export function disconnectAllChat() {
   for (const serverId of Object.keys(pendingByServer)) delete pendingByServer[serverId]
   for (const serverId of Object.keys(connectingAt)) delete connectingAt[serverId]
   desiredServers.clear()
+  sessionDismissed = false
   syncOutbox()
 }

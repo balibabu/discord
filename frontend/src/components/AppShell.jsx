@@ -17,6 +17,7 @@ import AddMemberModal from './modals/AddMemberModal'
 import ChannelSettingsModal from './modals/ChannelSettingsModal'
 import ProfileSettingsModal from './modals/ProfileSettingsModal'
 import ServerSettingsModal from './modals/ServerSettingsModal'
+import SessionConflictModal from './modals/SessionConflictModal'
 
 export default function AppShell() {
   const { serversLoaded, serverDetail, activeServerId, activeChannelId, activeMessageId, loadServers, selectServer, selectChannel, jumpToMessage, clearActiveMessage, reset } = useApp()
@@ -178,6 +179,7 @@ export default function AppShell() {
         <ChannelSettingsModal channel={modal.channel} onClose={() => setModal(null)} />
       )}
       {modal === 'server-settings' && <ServerSettingsModal onClose={() => setModal(null)} />}
+      <SessionConflictModal />
     </div>
   )
 }

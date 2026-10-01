@@ -42,6 +42,19 @@ export function leaveVoice() {
   useVoice.getState().reset()
 }
 
+export function rejoinVoiceAfterTakeover() {
+  const voice = useVoice.getState()
+  if (!voice.voiceServerId) return
+  if (!voice.inVoice) voice.setLocalState({ inVoice: true })
+  send({ type: 'join-voice', channel: voice.voiceChannelName })
+}
+
+export function cancelPendingVoice() {
+  if (useVoice.getState().inVoice || !rtc.localStream) return
+  stopLocalTracks()
+  useVoice.getState().reset()
+}
+
 export function toggleMute() {
   const voice = useVoice.getState()
   if (!voice.inVoice) return

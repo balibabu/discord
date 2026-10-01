@@ -4,6 +4,7 @@ import { playSend } from '../../lib/sounds'
 
 export const createMessagesSlice = (set, get) => ({
   messages: {},
+  outboxBusy: false,
   hasMore: {},
   hasNewer: {},
   loadingOlder: {},
@@ -69,6 +70,20 @@ export const createMessagesSlice = (set, get) => ({
     }
   },
 
+  resyncChannel: async (channelId) => {
+    const state = get()
+    const serverId = state.activeServerId
+    const list = state.messages[channelId]
+    if (!serverId || !channelId || !list?.length) return
+    const { data } = await api.get(
+      `/servers/${serverId}/channels/${channelId}/messages/?after=${list[list.length - 1].id}`
+    )
+    set((s) => ({
+      hasNewer: { ...s.hasNewer, [channelId]: data.has_more || !!s.hasNewer[channelId] },
+    }))
+    for (const message of data.messages) get().appendMessage(message)
+  },
+
   togglePinMessage: (messageId, pinned) => {
     pinChatMessage(messageId, pinned)
   },
@@ -121,12 +136,14 @@ export const createMessagesSlice = (set, get) => ({
   clearJumpTarget: () => set({ jumpTargetId: null }),
   clearActiveMessage: () => set({ activeMessageId: null }),
 
+  setOutboxBusy: (busy) => set({ outboxBusy: busy }),
+
   sendMessage: (content, files = [], replyToId = null) => {
     if (files.length > 0) {
       return get().sendFiles(files, content, replyToId)
     }
     if (content.trim()) {
-      sendChatMessage(get().activeChannelId, content, replyToId)
+      return sendChatMessage(get().activeChannelId, content, replyToId)
     }
   },
 

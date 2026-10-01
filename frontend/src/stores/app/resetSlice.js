@@ -17,6 +17,7 @@ export const createResetSlice = (set) => ({
       activeChannelId: null,
       activeMessageId: null,
       messages: {},
+      outboxBusy: false,
       hasMore: {},
       hasNewer: {},
       loadingOlder: {},

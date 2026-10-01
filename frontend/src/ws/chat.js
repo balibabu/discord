@@ -4,15 +4,52 @@ import { playSend, playReceive } from '../lib/sounds'
 import { showMessageNotification } from '../lib/notifications'
 
 const chatSockets = {}
+const pendingByServer = {}
+const connectingAt = {}
+const desiredServers = new Set()
 const RECONNECT_MS = 4000
+const RESYNC_GAP_MS = 300000
+let hiddenAt = null
 
-function sendTo(serverId, payload) {
+function enqueue(serverId, payload) {
+  if (!pendingByServer[serverId]) pendingByServer[serverId] = []
+  pendingByServer[serverId].push(payload)
+}
+
+function syncOutbox() {
+  const count = Object.values(pendingByServer).reduce((sum, queue) => sum + queue.length, 0)
+  useApp.getState().setOutboxBusy(count > 0)
+}
+
+function sendTo(serverId, payload, queue = true) {
+  if (!serverId) return false
   const ws = chatSockets[serverId]
   if (ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload))
     return true
   }
-  return false
+  if (!queue || !localStorage.getItem('token')) return false
+  enqueue(serverId, payload)
+  connectChat(serverId)
+  syncOutbox()
+  return true
+}
+
+function flushPending(serverId) {
+  const queue = pendingByServer[serverId]
+  if (!queue) return
+  while (queue.length > 0) {
+    const ws = chatSockets[serverId]
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    try {
+      ws.send(JSON.stringify(queue[0]))
+    } catch {
+      return
+    }
+    queue.shift()
+    playSend()
+    syncOutbox()
+  }
 }
 
 function handleEvent(serverId, data) {
@@ -97,13 +134,22 @@ function scheduleReconnect(serverId, code) {
 }
 
 export function connectChat(serverId) {
-  if (chatSockets[serverId]) return
+  if (!serverId) return
+  desiredServers.add(serverId)
+  const existing = chatSockets[serverId]
+  if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) return
   const token = localStorage.getItem('token')
   if (!token) return
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
   const ws = new WebSocket(`${protocol}://${location.host}/ws/chat/${serverId}/?token=${token}`)
+  connectingAt[serverId] = Date.now()
   ws.onmessage = (event) => handleEvent(serverId, JSON.parse(event.data))
+  ws.onopen = () => {
+    delete connectingAt[serverId]
+    flushPending(serverId)
+  }
   ws.onclose = (event) => {
+    delete connectingAt[serverId]
     if (chatSockets[serverId] !== ws) return
     delete chatSockets[serverId]
     scheduleReconnect(serverId, event.code)
@@ -111,16 +157,56 @@ export function connectChat(serverId) {
   chatSockets[serverId] = ws
 }
 
+export function refreshConnections() {
+  if (!localStorage.getItem('token')) return
+  for (const serverId of desiredServers) {
+    const ws = chatSockets[serverId]
+    if (!ws) {
+      connectChat(serverId)
+      continue
+    }
+    if (ws.readyState === WebSocket.OPEN) continue
+    if (ws.readyState === WebSocket.CONNECTING && Date.now() - (connectingAt[serverId] ?? 0) < 5000) continue
+    ws.onclose = null
+    ws.close()
+    delete chatSockets[serverId]
+    delete connectingAt[serverId]
+    connectChat(serverId)
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    hiddenAt = Date.now()
+    return
+  }
+  refreshConnections()
+  const gap = hiddenAt ? Date.now() - hiddenAt : 0
+  hiddenAt = null
+  if (gap > RESYNC_GAP_MS) {
+    const app = useApp.getState()
+    if (app.activeChannelId) app.resyncChannel(app.activeChannelId)
+  }
+})
+window.addEventListener('online', refreshConnections)
+
 export function sendChatMessage(channelId, content, replyToId = null) {
-  if (!channelId || !content.trim()) return
+  if (!channelId || !content.trim()) return false
+  const state = useApp.getState()
   const payload = {
     type: 'message',
     channel_id: channelId,
     content,
   }
   if (replyToId) payload.reply_to_id = replyToId
-  const sent = sendTo(useApp.getState().activeServerId, payload)
-  if (sent) playSend()
+  const direct = chatSockets[state.activeServerId]?.readyState === WebSocket.OPEN
+  const sent = sendTo(state.activeServerId, payload)
+  if (sent && direct) {
+    playSend()
+    return true
+  }
+  if (sent) return 'queued'
+  return false
 }
 
 export function editChatMessage(messageId, content) {
@@ -145,12 +231,12 @@ export function toggleChatReaction(messageId, emoji) {
 
 export function sendTyping(channelId) {
   if (!channelId) return
-  sendTo(useApp.getState().activeServerId, { type: 'typing', channel_id: channelId })
+  sendTo(useApp.getState().activeServerId, { type: 'typing', channel_id: channelId }, false)
 }
 
 export function sendStopTyping(channelId) {
   if (!channelId) return
-  sendTo(useApp.getState().activeServerId, { type: 'stop-typing', channel_id: channelId })
+  sendTo(useApp.getState().activeServerId, { type: 'stop-typing', channel_id: channelId }, false)
 }
 
 export function disconnectAllChat() {
@@ -160,4 +246,8 @@ export function disconnectAllChat() {
     ws.close()
     delete chatSockets[serverId]
   }
+  for (const serverId of Object.keys(pendingByServer)) delete pendingByServer[serverId]
+  for (const serverId of Object.keys(connectingAt)) delete connectingAt[serverId]
+  desiredServers.clear()
+  syncOutbox()
 }

@@ -33,7 +33,7 @@ function TypingIndicator({ users }) {
 }
 
 const MessageComposer = forwardRef(function MessageComposer({ channelId, channel }, ref) {
-  const { typingByChannel, clearTyping, sendMessage } = useApp()
+  const { typingByChannel, clearTyping, sendMessage, outboxBusy } = useApp()
   const me = useAuth((s) => s.user)
   const [replyTo, setReplyTo] = useState(null)
   const [emojiPos, setEmojiPos] = useState(null)
@@ -47,6 +47,8 @@ const MessageComposer = forwardRef(function MessageComposer({ channelId, channel
   const attachmentsRef = useRef([])
   const typingState = useRef({ active: false, lastSent: 0 })
   const typingChannelRef = useRef(channelId)
+  const queuedText = useRef(null)
+  const prevOutboxBusy = useRef(false)
 
   const channelTyping = typingByChannel[channelId] || {}
   const typingCount = Object.keys(channelTyping).length
@@ -237,13 +239,30 @@ const MessageComposer = forwardRef(function MessageComposer({ channelId, channel
     handleTypingInput({ target: input })
   }
 
+  useEffect(() => {
+    if (prevOutboxBusy.current && !outboxBusy) {
+      const queued = queuedText.current
+      queuedText.current = null
+      const input = inputRef.current
+      if (queued && input && String(queued.channelId) === String(channelId) && input.value === queued.text) {
+        input.value = ''
+        input.style.height = 'auto'
+      }
+    }
+    prevOutboxBusy.current = outboxBusy
+  }, [outboxBusy, channelId])
+
   const submit = async () => {
     const input = inputRef.current
     const text = input.value.trim()
-    if (uploading || (!text && attachments.length === 0)) return
+    if (uploading || outboxBusy || (!text && attachments.length === 0)) return
     setUploading(true)
     try {
       const ok = await sendMessage(text, attachments.map((a) => a.file), replyTo?.id ?? null)
+      if (ok === 'queued') {
+        queuedText.current = { channelId, text }
+        return
+      }
       if (ok === false) return
       if (typingState.current.active) {
         typingState.current.active = false
@@ -348,10 +367,11 @@ const MessageComposer = forwardRef(function MessageComposer({ channelId, channel
           <button
             onClick={submit}
             type="button"
-            disabled={uploading}
+            disabled={uploading || outboxBusy}
+            title={outboxBusy ? 'Sending...' : undefined}
             className="text-[#5865f2] hover:text-[#4752c4] disabled:opacity-50 font-medium p-1 mb-0.5 shrink-0"
           >
-            {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+            {uploading || outboxBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
           </button>
         </div>
       </div>

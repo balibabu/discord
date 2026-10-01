@@ -184,23 +184,19 @@ export default function MessageItem({ message, isMine, grouped, onDeleteRequest,
             </div>
           </div>
         ) : (
-          <div className={`${grouped ? '' : 'mt-0.5'} flex items-baseline gap-1.5 min-w-0`}>
-            <div className="flex-1 min-w-0">
-              <div
-                className={`text-gray-200 discord-markdown break-words select-text ${
-                  jumbo ? (jumbo === 1 ? 'text-5xl' : 'text-[32px]') : 'text-sm'
-                }`}
-              >
-                <Suspense fallback={<span className="text-gray-400">{message.content}</span>}>
-                  <Markdown>{message.content}</Markdown>
-                </Suspense>
-              </div>
-              {message.attachment && <AttachmentView attachment={message.attachment} transcript={message.attachment_transcript} />}
-              <ReactionChips message={message} />
+          <div className={`${grouped ? '' : 'mt-0.5'} min-w-0`}>
+            <div
+              className={`text-gray-200 discord-markdown break-words select-text ${
+                jumbo ? (jumbo === 1 ? 'text-5xl' : 'text-[32px]') : 'text-sm'
+              } ${grouped && message.edited_at ? 'edited-inline' : ''}`}
+            >
+              <Suspense fallback={<span className="text-gray-400">{message.content}</span>}>
+                <Markdown>{message.content}</Markdown>
+              </Suspense>
+              {grouped && message.edited_at && <span className="text-[10px] text-gray-500">(edited)</span>}
             </div>
-            {grouped && message.edited_at && (
-              <span className="text-[10px] text-gray-500 shrink-0">(edited)</span>
-            )}
+            {message.attachment && <AttachmentView attachment={message.attachment} transcript={message.attachment_transcript} />}
+            <ReactionChips message={message} />
           </div>
         )}
       </div>

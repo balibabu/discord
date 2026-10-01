@@ -12,6 +12,8 @@ html, body, #root {
 
 .discord-markdown p { margin-bottom: 0.25rem; line-height: 1.45; }
 .discord-markdown p:last-child { margin-bottom: 0; }
+.discord-markdown.edited-inline p { display: inline; }
+.discord-markdown.edited-inline p::after { content: ' '; }
 .discord-markdown code {
   background-color: #2b2d31;
   padding: 0.15rem 0.35rem;

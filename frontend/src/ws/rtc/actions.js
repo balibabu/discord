@@ -17,13 +17,17 @@ import { startRecorder, stopRecorder } from './relay'
 export async function joinVoice(serverId, channelName) {
   if (useVoice.getState().inVoice) return
   if (!rtc.sockets[serverId]) connectRtc(serverId)
-  rtc.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+  try {
+    rtc.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+  } catch {
+    rtc.localStream = null
+  }
   playJoinVoice()
   useVoice.getState().setLocalState({
     inVoice: true,
     voiceServerId: serverId,
     voiceChannelName: channelName,
-    muted: false,
+    muted: !rtc.localStream,
     deafened: false,
     sharing: false,
   })

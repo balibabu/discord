@@ -202,13 +202,30 @@ export default function ChannelSidebar({ onAddChannel, onChannelSettings, onServ
               </div>
             </div>
           </div>
-          <button
-            onClick={leaveVoice}
-            title="Disconnect"
-            className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-[#313338] rounded transition"
-          >
-            <PhoneOff className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {(() => {
+              const others = voice.participants.filter((p) => String(p.id) !== String(user?.id))
+              if (others.length === 0) return null
+              const relays = others.filter((p) => voice.fallbackPeers.includes(String(p.id))).length
+              return (
+                <span
+                  title={relays > 0 ? `${relays}/${others.length} via server relay` : 'Direct peer-to-peer'}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide shrink-0 ${
+                    relays > 0 ? 'bg-amber-500/15 text-amber-300' : 'bg-[#23a55a]/15 text-[#23a55a]'
+                  }`}
+                >
+                  {relays > 0 ? 'WS' : 'P2P'}
+                </span>
+              )
+            })()}
+            <button
+              onClick={leaveVoice}
+              title="Disconnect"
+              className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-[#313338] rounded transition"
+            >
+              <PhoneOff className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 

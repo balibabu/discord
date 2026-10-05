@@ -16,7 +16,22 @@ function elementFor(pb) {
   return document.querySelector(`video[data-screen-peer="${CSS.escape(pb.key)}"]`)
 }
 
+function killPlayback(pb) {
+  if (pb.timer) clearInterval(pb.timer)
+  pb.timer = null
+  const kinds = rtc.playback[pb.key]
+  if (kinds) {
+    delete kinds[pb.kind]
+    if (Object.keys(kinds).length === 0) delete rtc.playback[pb.key]
+  }
+  URL.revokeObjectURL(pb.url)
+}
+
 function maintainPlayback(pb) {
+  if (pb.mediaSource.readyState !== 'open') {
+    killPlayback(pb)
+    return
+  }
   const el = elementFor(pb)
   if (el && el.buffered.length > 0) {
     const end = el.buffered.end(el.buffered.length - 1)
@@ -38,7 +53,8 @@ function maintainPlayback(pb) {
 }
 
 function flushPlayback(pb) {
-  if (!pb.sb || pb.sb.updating || pb.queue.length === 0) return
+  if (pb.dead || !pb.sb || pb.mediaSource.readyState !== 'open') return
+  if (pb.sb.updating || pb.queue.length === 0) return
   const chunk = pb.queue.shift()
   try {
     pb.sb.appendBuffer(chunk)

@@ -29,6 +29,8 @@ export default function ServerRail({ onAddServer, onLogout }) {
                     alt={server.name}
                     className="w-full h-full rounded-[inherit] object-cover"
                     draggable="false"
+                    loading="lazy"
+                    fetchpriority="low"
                   />
                 ) : (
                   server.icon

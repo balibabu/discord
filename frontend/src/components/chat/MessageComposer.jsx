@@ -1,8 +1,9 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { Loader2, Mic, Paperclip, Reply, Send, Smile, Square, X } from 'lucide-react'
+import { FileAudio, Loader2, Mic, Paperclip, Reply, Send, Smile, Square, Type, X } from 'lucide-react'
 import { useApp } from '../../stores/app'
 import { useAuth } from '../../stores/auth'
 import { sendTyping, sendStopTyping } from '../../ws/chat'
+import { api } from '../../lib/api'
 import { isTouchDevice } from '../../lib/platform'
 import EmojiPicker from '../EmojiPicker'
 import Avatar from '../Avatar'
@@ -41,6 +42,9 @@ const MessageComposer = forwardRef(function MessageComposer({ channelId, channel
   const [uploading, setUploading] = useState(false)
   const [recording, setRecording] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
+  const [voiceFile, setVoiceFile] = useState(null)
+  const [transcribing, setTranscribing] = useState(false)
+  const [transcribeError, setTranscribeError] = useState('')
   const recorderRef = useRef(null)
   const inputRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -157,7 +161,10 @@ const MessageComposer = forwardRef(function MessageComposer({ channelId, channel
         stream.getTracks().forEach((track) => track.stop())
         const type = recorder.mimeType || mimeType || 'audio/webm'
         const blob = new Blob(chunks, { type })
-        if (blob.size > 0) addFiles([new File([blob], `voice-message-${Date.now()}.webm`, { type })])
+        if (blob.size > 0) {
+          setTranscribeError('')
+          setVoiceFile(new File([blob], `voice-message-${Date.now()}.webm`, { type }))
+        }
       }
       recorder.start()
       recorderRef.current = recorder
@@ -173,6 +180,43 @@ const MessageComposer = forwardRef(function MessageComposer({ channelId, channel
     recorderRef.current = null
     if (recorder && recorder.state !== 'inactive') recorder.stop()
     setRecording(false)
+  }
+
+  const extractVoiceText = async () => {
+    if (!voiceFile || transcribing) return
+    setTranscribing(true)
+    setTranscribeError('')
+    try {
+      const form = new FormData()
+      form.append('file', voiceFile)
+      const { data } = await api.post('/transcribe/', form)
+      const input = inputRef.current
+      if (input) {
+        const start = input.selectionStart ?? input.value.length
+        const end = input.selectionEnd ?? start
+        input.value = input.value.slice(0, start) + data.text + input.value.slice(end)
+        const pos = start + data.text.length
+        input.setSelectionRange(pos, pos)
+        input.focus()
+        handleTypingInput({ target: input })
+      }
+      setVoiceFile(null)
+    } catch {
+      setTranscribeError('Transcription failed')
+    } finally {
+      setTranscribing(false)
+    }
+  }
+
+  const sendVoiceFile = () => {
+    if (!voiceFile || transcribing) return
+    addFiles([voiceFile])
+    setVoiceFile(null)
+  }
+
+  const discardVoiceFile = () => {
+    setVoiceFile(null)
+    setTranscribeError('')
   }
 
   const handleFileChange = (e) => {
@@ -308,6 +352,41 @@ const MessageComposer = forwardRef(function MessageComposer({ channelId, channel
               type="button"
               title="Cancel reply"
               className="p-1 rounded text-gray-400 hover:text-white hover:bg-black/20 transition shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+        {voiceFile && (
+          <div className="flex items-center gap-2 pb-2 mb-2 border-b border-black/20 text-xs min-w-0">
+            <Mic className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            <span className="text-gray-400 shrink-0">Voice message recorded</span>
+            {transcribeError && <span className="text-red-400 truncate min-w-0">{transcribeError}</span>}
+            <span className="flex-1" />
+            <button
+              onClick={extractVoiceText}
+              disabled={transcribing}
+              type="button"
+              className="flex items-center gap-1 px-2 py-1 rounded text-[#c9cdfb] hover:text-white hover:bg-black/20 disabled:opacity-50 transition shrink-0"
+            >
+              {transcribing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Type className="w-3.5 h-3.5" />}
+              {transcribing ? 'Transcribing...' : 'Extract text'}
+            </button>
+            <button
+              onClick={sendVoiceFile}
+              disabled={transcribing}
+              type="button"
+              className="flex items-center gap-1 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-black/20 disabled:opacity-50 transition shrink-0"
+            >
+              <FileAudio className="w-3.5 h-3.5" />
+              Send as audio
+            </button>
+            <button
+              onClick={discardVoiceFile}
+              disabled={transcribing}
+              type="button"
+              title="Discard recording"
+              className="p-1 rounded text-gray-400 hover:text-white hover:bg-black/20 disabled:opacity-50 transition shrink-0"
             >
               <X className="w-3.5 h-3.5" />
             </button>

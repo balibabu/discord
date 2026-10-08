@@ -23,7 +23,7 @@ from .serializers import (
     ServerSerializer,
     UserSerializer,
 )
-from .transcription import transcribe_message, transcription_ready
+from .transcription import transcribe, transcribe_message, transcription_ready
 
 
 def token_response(user):
@@ -363,6 +363,24 @@ class MessageUploadView(APIView):
         if transcription_ready(mime_type):
             threading.Thread(target=transcribe_message, args=(message.id, mime_type), daemon=True).start()
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
+
+
+class TranscribeUploadView(APIView):
+    def post(self, request):
+        file = request.FILES.get("file")
+        if file is None:
+            return Response({"error": "No file provided."}, status=status.HTTP_400_BAD_REQUEST)
+        if file.size > settings.MAX_UPLOAD_SIZE:
+            return Response({"error": "File exceeds the 100 MB limit."}, status=413)
+        mime_type = (file.content_type or "").split(";")[0].strip()
+        if not transcription_ready(mime_type):
+            return Response(
+                {"error": "Transcription is not available."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        transcript = transcribe(file.read(), mime_type)
+        if not transcript:
+            return Response({"error": "No speech detected."}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        return Response({"text": transcript})
 
 
 class ChannelReadView(APIView):
